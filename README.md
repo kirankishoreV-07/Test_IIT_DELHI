@@ -17,78 +17,27 @@ This application has been redesigned with an **"EcoReports"** theme, focusing on
 - 🌳 Sustainability-focused messaging and branding
 - 🌊 Professional environmental color palette
 
-- **Multilingual Support**: Support for 22+ Indian languages using Bhashini API
-- **AI-Powered Verification**: CNN-based image validation to filter fake complaints
-- **Emotion & Sentiment Analysis**: DistilBERT for understanding complaint urgency
-- **Location-Based Prioritization**: Proximity scoring for sensitive areas
-- **Real-Time Heatmaps**: Live complaint visualization using Mapbox
-- **Role-Based Dashboards**: Separate interfaces for citizens and administrators
-- **AI Chatbot Integration**: Civic information and support assistant
-
 ## 🏗️ Architecture
 
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   React Native  │    │   Node.js API   │    │    Supabase     │
-│    Frontend     │◄──►│    Backend      │◄──►│    Database     │
-│   (Expo CLI)    │    │   (Express.js)  │    │   (PostgreSQL)  │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-```
+### Frontend (React Native + Expo)
+- **Location:** `civic-rezo-frontend/`
+- **Technology:** React Native, Expo, React Navigation
+- **Features:** Environmental theme, separate citizen and admin portals
+- **UI:** Nature-inspired gradients, professional Ionicons, responsive design
 
-### Tech Stack
+### Backend (Node.js + Express)
+- **Location:** `civic-rezo-backend/`
+- **Technology:** Node.js, Express, JWT Authentication
+- **Features:** RESTful API, User management, Complaint processing
 
-**Frontend:**
-- React Native with Expo
-- React Navigation
-- Supabase JS Client
-- AsyncStorage for local storage
-
-**Backend:**
-- Node.js with Express.js
-- Supabase for database and authentication
-- JWT for session management
-- Multer for file uploads
-
-**Database:**
-- Supabase (PostgreSQL)
-- Row Level Security (RLS)
-- Real-time subscriptions
-
-**Future Integrations:**
-- Bhashini API (Multilingual)
-- TensorFlow Lite (AI Verification)
-- Mapbox (Heatmaps)
-- Hugging Face (NLP)
-
-## 📁 Project Structure
-
-```
-CIVIC-REZO/
-├── civic-rezo-frontend/          # React Native App
-│   ├── src/
-│   │   └── screens/
-│   │       ├── auth/            # Login/Signup screens
-│   │       ├── citizen/         # Citizen dashboard
-│   │       └── admin/           # Admin dashboard
-│   ├── config/
-│   │   └── supabase.js         # Database configuration
-│   └── App.js                  # Main navigation
-│
-├── civic-rezo-backend/          # Node.js API
-│   ├── routes/
-│   │   ├── auth.js             # Authentication routes
-│   │   ├── complaints.js       # Complaint management
-│   │   └── admin.js            # Admin operations
-│   ├── server.js               # Main server file
-│   └── .env                    # Environment variables
-│
-└── database-schema.sql          # Supabase database schema
-```
+### Database (Supabase)
+- **Technology:** PostgreSQL with Row Level Security
+- **Features:** Real-time subscriptions, File storage, Authentication
+- **Schema:** `supabase-schema-complete.sql`
 
 ## 🚀 Getting Started
 
 ### Prerequisites
-
 - Node.js (v16 or higher)
 - npm or yarn
 - Expo CLI
@@ -98,165 +47,192 @@ CIVIC-REZO/
 
 1. **Clone the repository**
    ```bash
-   git clone <repository-url>
-   cd CIVIC-REZO
+   git clone https://github.com/Goldmauler/IIT-Delhi.git
+   cd IIT-Delhi
    ```
 
 2. **Set up the backend**
    ```bash
    cd civic-rezo-backend
    npm install
-   
-   # Configure environment variables
    cp .env.example .env
    # Edit .env with your Supabase credentials
-   
-   # Start the backend server
-   npm run dev
+   npm start
    ```
 
-3. **Set up the database**
-   - Open your Supabase project dashboard
-   - Go to SQL Editor
-   - Run the contents of `database-schema.sql`
-
-4. **Set up the frontend**
+3. **Set up the frontend**
    ```bash
    cd civic-rezo-frontend
    npm install
-   
-   # Start the Expo development server
    npx expo start
    ```
 
+4. **Set up the database**
+   - Go to your Supabase dashboard
+   - Navigate to SQL Editor
+   - Copy and run the contents of `supabase-schema-complete.sql`
+
 ### Environment Variables
 
-Create a `.env` file in the backend directory:
-
+#### Backend (.env)
 ```env
-NODE_ENV=development
-PORT=5000
-SUPABASE_URL=your-supabase-url
-SUPABASE_ANON_KEY=your-supabase-anon-key
-JWT_SECRET=your-jwt-secret
+SUPABASE_URL=https://edragfuoklcgdgtospuq.supabase.co
+SUPABASE_KEY=your_supabase_key
+JWT_SECRET=your_jwt_secret
+PORT=3001
 ```
 
-## 📱 Features Implementation Status
+#### Frontend (.env)
+```env
+EXPO_PUBLIC_API_URL=http://YOUR_IP:3001
+EXPO_PUBLIC_SUPABASE_URL=https://edragfuoklcgdgtospuq.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=your_supabase_key
+```
 
-### ✅ Completed
-- [x] User authentication (login/signup)
-- [x] Role-based access (citizen/admin)
-- [x] Supabase integration
-- [x] Basic dashboard interfaces
-- [x] Database schema design
-- [x] API structure setup
+## 🌟 Features
 
-### 🚧 In Progress
-- [ ] Complaint submission with image upload
-- [ ] AI image verification (CNN model)
-- [ ] Multilingual support (Bhashini integration)
-- [ ] Emotion analysis (DistilBERT)
-- [ ] Location-based prioritization
-- [ ] Real-time heatmaps (Mapbox)
-- [ ] Push notifications
-- [ ] AI chatbot integration
+### ✅ Implemented Features
+- **Environmental Theme** - Complete nature-inspired UI redesign
+- **User Authentication** - Separate portals for citizens and admins
+- **EcoReports Dashboard** - Environmental-focused citizen interface
+- **EcoAdmin Portal** - Administrative environmental management
+- **Password Visibility** - Enhanced security UX
+- **Gradient Design** - Professional forest and ocean themes
+- **Responsive Layout** - Proper alignment and spacing
+- **Icon Integration** - Professional Ionicons throughout
 
-### 📋 Planned
-- [ ] Advanced admin analytics
-- [ ] Escalation workflows
-- [ ] Complaint tracking system
-- [ ] Department assignment
-- [ ] Mobile app optimization
-- [ ] Voice input support
+### 🔄 Planned AI Features
+- **Image Verification** - CNN model for fake complaint detection
+- **Emotion Analysis** - DistilBERT for urgency detection
+- **Multilingual Support** - Bhashini API integration
+- **Priority Scoring** - Combined AI metrics for complaint ranking
+- **Real-time Heatmaps** - Mapbox integration for complaint visualization
 
-## 🎨 UI/UX Design
+## 📂 Project Structure
 
-### Color Scheme
-- **Primary Green**: `#2E7D32` (Citizen theme)
-- **Primary Blue**: `#1976D2` (Admin theme)
-- **Success**: `#4CAF50`
-- **Warning**: `#FF9800`
-- **Error**: `#F44336`
-- **Background**: `#F5F5F5`
+```
+IIT-Delhi/
+├── civic-rezo-frontend/          # React Native app
+│   ├── src/
+│   │   ├── components/           # Reusable components
+│   │   ├── screens/              # Screen components
+│   │   │   ├── auth/             # Authentication screens
+│   │   │   ├── citizen/          # Citizen portal
+│   │   │   └── admin/            # Admin portal
+│   │   ├── theme/                # Environmental theme
+│   │   │   └── EnvironmentalTheme.js
+│   │   └── utils/                # Utility functions
+│   ├── App.js                    # Main app entry point
+│   └── package.json
+├── civic-rezo-backend/           # Node.js API
+│   ├── src/
+│   │   ├── controllers/          # Route controllers
+│   │   ├── middleware/           # Express middleware
+│   │   ├── routes/               # API routes
+│   │   └── utils/                # Utility functions
+│   ├── server.js                 # Server entry point
+│   └── package.json
+├── supabase-schema-complete.sql  # Database schema
+├── environmental-theme-report.md # Theme documentation
+└── README.md                     # This file
+```
 
-### User Flows
+## 🎨 Environmental Theme
 
-1. **Citizen Journey**
-   - Sign up/Login → Dashboard → Submit Complaint → Track Status
+### Color Palette
+- **Primary:** Forest greens (#2E7D32, #60AD5E, #1B5E20)
+- **Secondary:** Ocean blues (#0277BD, #58A5F0, #01579B)
+- **Accents:** Earth tones (amber, teal, lime)
+- **Neutrals:** Natural stone-inspired grays
 
-2. **Admin Journey**
-   - Login → Dashboard → Review Complaints → Assign/Resolve → Analytics
+### Components
+- **Citizen Dashboard:** "EcoReports" portal with environmental actions
+- **Admin Dashboard:** "EcoAdmin" control with governance tools
+- **Authentication:** Environmental gradients and professional styling
+- **Theme System:** Centralized design tokens for consistency
 
-## 🗄️ Database Schema
+## 🛠️ Development Commands
 
-The database includes the following main tables:
-- `users` - User authentication and profiles
-- `complaints` - Complaint details and metadata
-- `complaint_votes` - Citizen voting on complaint importance
-- `complaint_updates` - Status change tracking
-- `notifications` - User notifications
-- `departments` - Municipal departments
+### Backend
+```bash
+cd civic-rezo-backend
+npm start          # Start development server
+npm test           # Run tests
+npm run lint       # Lint code
+```
 
-## 🔐 Security Features
+### Frontend
+```bash
+cd civic-rezo-frontend
+npx expo start     # Start Expo development server
+npx expo start --web  # Start web version
+npm test           # Run tests
+```
 
-- JWT-based authentication
-- Row Level Security (RLS) in Supabase
-- Input validation and sanitization
-- CORS protection
-- Environment variable protection
+## 📊 Current Status
 
-## 🚀 Deployment
+- ✅ Backend API with authentication
+- ✅ React Native frontend with environmental theme
+- ✅ Database schema with proper relationships
+- ✅ Separate citizen and admin portals
+- ✅ Enhanced UI with professional design
+- ✅ Password visibility and security features
+- ✅ Responsive design with proper alignment
+- 🔄 AI integration in progress
+- 🔄 Real-time features planned
 
-### Backend Deployment
-- Can be deployed on platforms like Heroku, Railway, or Vercel
-- Environment variables must be configured in production
+## 🎯 Roadmap
 
-### Frontend Deployment
-- Build using `expo build`
-- Deploy to Google Play Store / Apple App Store
-- Or use Expo's web build for browser access
+### Phase 1: Core Platform ✅
+- User authentication and authorization
+- Basic complaint CRUD operations
+- Dashboard interfaces
+- Environmental theme implementation
 
-## 📊 Future Enhancements
+### Phase 2: AI Integration 🔄
+- Image verification using CNN
+- Emotion analysis with DistilBERT
+- Priority scoring algorithm
+- Multilingual support with Bhashini
 
-1. **AI Integration**
-   - Advanced image recognition for complaint categorization
-   - Natural language processing for priority detection
-   - Predictive analytics for resource allocation
+### Phase 3: Advanced Features 📋
+- Real-time heatmaps with Mapbox
+- Push notifications
+- Advanced analytics
+- Mobile app deployment
 
-2. **IoT Integration**
-   - Smart sensor data integration
-   - Automated complaint generation
-   - Real-time environmental monitoring
+## 🤝 Collaboration
 
-3. **Blockchain**
-   - Transparent complaint tracking
-   - Immutable resolution records
-   - Decentralized voting mechanisms
+### Git Workflow
+1. Create feature branches for new features
+2. Commit regularly with descriptive messages
+3. Pull requests for code review before merging
+4. Keep main branch stable and deployable
 
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+### Commit Convention
+```
+feat: add citizen dashboard
+fix: resolve login authentication issue
+docs: update README with setup instructions
+style: improve environmental theme UI
+```
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License.
 
-## 👥 Team REZO
+## 👨‍💻 Team
 
-- **Team Leader**: Vimalharihar Kumar
-- **Project**: CivicStack - Urban Feedback Systems
-- **Hackathon**: Hack for Governance & Public Systems
+- **Developer:** kirankishoreV-07
+- **GitHub:** Goldmauler
+- **Institution:** IIT Delhi
 
-## 📞 Support
+## 🆘 Support
 
-For support and queries, please contact:
-- Email: support@civicstack.com
-- GitHub Issues: [Create an issue](https://github.com/your-repo/issues)
+For support and questions:
+- Create an issue in the GitHub repository
+- Contact: kirankishoreV-07
 
 ---
 
-*Built with ❤️ for better civic governance in India*
+**Built with 🌱 for better environmental governance and civic responsibility**
