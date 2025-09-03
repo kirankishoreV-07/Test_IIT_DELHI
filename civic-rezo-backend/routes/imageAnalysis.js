@@ -3,6 +3,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const ImageAnalysisService = require('../services/imageAnalysisService');
+const { validateImageWithRoboflow } = require('../services/imageAnalysisService');
 const router = express.Router();
 
 // Configure multer for file upload
@@ -65,119 +66,7 @@ const upload = multer({
 });
 
 // Route to validate and analyze civic issue image
-router.post('/validate', upload.single('image'), async (req, res) => {
-    try {
-        console.log('📸 Image validation request received');
-        
-        // Create service instance (temporarily moved here to see initialization logs)
-        const imageAnalysisService = new ImageAnalysisService();
-        
-        console.log('📋 Request details:', {
-            hasFile: !!req.file,
-            originalName: req.file?.originalname,
-            size: req.file?.size,
-            mimetype: req.file?.mimetype
-        });
-        
-        if (!req.file) {
-            return res.status(400).json({
-                success: false,
-                message: 'No image file provided',
-                allowUpload: false,
-                stage: 'file_missing'
-            });
-        }
 
-        const imagePath = req.file.path;
-        console.log('📁 Processing image:', imagePath);
-
-        // Perform comprehensive image analysis
-        const analysisResult = await imageAnalysisService.validateAndAnalyzeImage(imagePath);
-        
-        console.log('🔍 Analysis result details:', {
-            success: analysisResult.success,
-            stage: analysisResult.stage,
-            allowUpload: analysisResult.allowUpload,
-            hasError: !!analysisResult.error
-        });
-
-        // Always clean up uploaded file after analysis
-        try {
-            if (fs.existsSync(imagePath)) {
-                fs.unlinkSync(imagePath);
-                console.log('🗑️ Temporary file cleaned up');
-            }
-        } catch (cleanupError) {
-            console.warn('⚠️ Failed to cleanup temporary file:', cleanupError.message);
-        }
-
-        console.log('✅ Image validation completed');
-        console.log('🎯 Decision:', analysisResult.allowUpload ? 'ALLOWED' : 'REJECTED');
-        
-        if (analysisResult.allowUpload) {
-            console.log('🏆 Priority Score:', analysisResult.priorityScore);
-            console.log('⚡ Urgency Level:', analysisResult.urgencyLevel);
-        }
-
-        // Structure response based on success/failure
-        const response = {
-            success: analysisResult.success !== false,
-            allowUpload: analysisResult.allowUpload,
-            message: analysisResult.reason || analysisResult.error || 'Image analysis completed',
-            stage: analysisResult.stage
-        };
-
-        // Add analysis data if upload is allowed
-        if (analysisResult.allowUpload) {
-            response.data = {
-                priorityScore: analysisResult.priorityScore,
-                urgencyLevel: analysisResult.urgencyLevel,
-                detectedIssues: analysisResult.detectedIssues,
-                confidence: analysisResult.analysis?.confidence,
-                analysis: analysisResult.analysis
-            };
-        } else {
-            // Add helpful information for rejected uploads
-            response.suggestion = analysisResult.suggestion;
-            response.errorDetails = analysisResult.error;
-            if (analysisResult.analysis) {
-                response.debugInfo = {
-                    detections: analysisResult.analysis.predictions?.length || 0,
-                    confidence: analysisResult.analysis.confidence || 0,
-                    reason: analysisResult.analysis.reason
-                };
-            }
-        }
-
-        res.status(analysisResult.allowUpload ? 200 : 400).json(response);
-
-    } catch (error) {
-        console.error('❌ Image validation route error:', error);
-        console.error('❌ Error stack:', error.stack);
-        
-        // Clean up uploaded file on error
-        if (req.file && fs.existsSync(req.file.path)) {
-            try {
-                fs.unlinkSync(req.file.path);
-            } catch (cleanupError) {
-                console.warn('⚠️ Failed to cleanup file after error:', cleanupError.message);
-            }
-        }
-
-        res.status(500).json({
-            success: false,
-            allowUpload: false,
-            message: 'Image validation failed',
-            error: error.message,
-            stage: 'server_error',
-            errorDetails: {
-                name: error.name,
-                message: error.message,
-                stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-            }
-        });
-    }
-});
 
 // Route to get supported civic issue categories
 router.get('/categories', (req, res) => {
@@ -247,3 +136,48 @@ router.get('/test-connection', async (req, res) => {
 });
 
 module.exports = router;
+
+/**
+ * POST /validate-image
+ * Body: { image: base64 string }
+ * Returns: { confidence, raw }
+ */
+router.post('/validate-image', async (req, res) => {
+    try {
+        const { image } = req.body;
+        if (!image) {
+            const { imageUrl } = req.body;
+            if (!imageUrl) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'No image URL provided',
+                    allowUpload: false,
+                    stage: 'url_missing'
+                });
+            }
+            // Validate image using Roboflow workflow API
+            const result = await validateImageWithRoboflow(imageUrl);
+            return res.json({
+                success: true,
+                confidence: result.confidence,
+                raw: result.raw
+            });
+        }
+        // If image is provided, you can add validation logic here if needed
+        // For now, just return a placeholder response
+        return res.status(400).json({
+            success: false,
+            message: 'Base64 image validation not implemented',
+            allowUpload: false,
+            stage: 'not_implemented'
+        });
+    } catch (err) {
+        return res.status(500).json({
+            success: false,
+            message: 'Image validation failed',
+            error: err.message,
+            allowUpload: false,
+            stage: 'server_error'
+        });
+    }
+});

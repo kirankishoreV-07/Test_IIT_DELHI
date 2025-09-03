@@ -1,6 +1,5 @@
-require('dotenv').config({ 
-    path: '/Users/kirankishore/test_1/IIT-Delhi/civic-rezo-backend/.env' 
-});
+// Load environment variables from the project .env (no hardcoded absolute paths)
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -15,6 +14,11 @@ console.log('🔧 Environment Debug:', {
     ROBOFLOW_API_URL: process.env.ROBOFLOW_API_URL,
     PORT: process.env.PORT
 });
+
+// Ensure JWT secret exists in dev to avoid crashes
+if (!process.env.JWT_SECRET) {
+  process.env.JWT_SECRET = 'dev-secret-change-me';
+}
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -45,6 +49,7 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/complaints', require('./routes/complaints'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/image-analysis', require('./routes/imageAnalysis'));
+app.use('/cloudinary', require('./routes/cloudinary'));
 
 // Health check
 app.get('/health', (req, res) => {
@@ -75,7 +80,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({
     success: false,
     message: 'Something went wrong!',
-    error: process.env.NODE_ENV === 'development' ? err.message : {}
+  error: process.env.NODE_ENV === 'development' ? err.message : {}
   });
 });
 
