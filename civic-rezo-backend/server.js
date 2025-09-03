@@ -1,9 +1,20 @@
-require('dotenv').config();
+require('dotenv').config({ 
+    path: '/Users/kirankishore/test_1/IIT-Delhi/civic-rezo-backend/.env' 
+});
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const { createClient } = require('@supabase/supabase-js');
+
+// Debug environment variables
+console.log('🔧 Environment Debug:', {
+    ROBOFLOW_API_KEY: process.env.ROBOFLOW_API_KEY ? 'SET' : 'NOT SET',
+    ROBOFLOW_WORKSPACE: process.env.ROBOFLOW_WORKSPACE,
+    ROBOFLOW_WORKFLOW: process.env.ROBOFLOW_WORKFLOW,
+    ROBOFLOW_API_URL: process.env.ROBOFLOW_API_URL,
+    PORT: process.env.PORT
+});
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -19,7 +30,12 @@ app.set('supabase', supabase);
 
 // Middleware
 app.use(helmet());
-app.use(cors());
+app.use(cors({
+  origin: true, // Allow all origins in development
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(morgan('combined'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -28,6 +44,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/complaints', require('./routes/complaints'));
 app.use('/api/admin', require('./routes/admin'));
+app.use('/api/image-analysis', require('./routes/imageAnalysis'));
 
 // Health check
 app.get('/health', (req, res) => {
@@ -73,7 +90,8 @@ app.use('*', (req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 CivicStack Backend Server is running on port ${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
-  console.log(`📱 Mobile access: http://192.168.29.212:${PORT}/health`);
+  console.log(`📱 Mobile access: http://192.168.29.237:${PORT}/health`);
+  console.log(`📱 API endpoints: http://192.168.29.237:${PORT}/api`);
 });
 
 module.exports = app;
