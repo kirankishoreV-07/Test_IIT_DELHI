@@ -128,7 +128,7 @@ const CitizenDashboard = ({ navigation }) => {
           <View style={styles.actionGrid}>
             <TouchableOpacity 
               style={[styles.actionButton, styles.primaryAction]}
-              onPress={() => Alert.alert('Submit Report', 'Environmental report submission coming soon!')}
+              onPress={() => navigation.navigate('SubmitComplaint')}
             >
               <LinearGradient
                 colors={[EnvironmentalTheme.primary.main, EnvironmentalTheme.primary.light]}

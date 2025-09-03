@@ -17,6 +17,7 @@ import LoginScreen from './src/screens/auth/LoginScreen';
 import SignupScreen from './src/screens/auth/SignupScreen';
 import CitizenDashboard from './src/screens/citizen/CitizenDashboard';
 import AdminDashboard from './src/screens/admin/AdminDashboard';
+import SubmitComplaintScreen from './src/screens/complaint/SubmitComplaintScreen';
 
 const Stack = createStackNavigator();
 
@@ -88,6 +89,7 @@ export default function App() {
         
         {/* Citizen Screens */}
         <Stack.Screen name="CitizenDashboard" component={CitizenDashboard} />
+        <Stack.Screen name="SubmitComplaint" component={SubmitComplaintScreen} />
         
         {/* Admin Screens */}
         <Stack.Screen name="AdminDashboard" component={AdminDashboard} />
