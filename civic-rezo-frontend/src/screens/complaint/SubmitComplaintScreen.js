@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { API_BASE_URL } from '../../../config/supabase';
+import { supabase } from '../../../config/supabase';
 
 const SubmitComplaintScreen = ({ navigation }) => {
   const [formData, setFormData] = useState({
@@ -84,56 +85,82 @@ const SubmitComplaintScreen = ({ navigation }) => {
 
   const validateImage = async (imageAsset) => {
     if (!imageAsset) return;
-
     setValidatingImage(true);
-    
     try {
       console.log('🔍 Starting image validation...');
-      
-      // Create FormData for image upload
-      const formData = new FormData();
-      formData.append('image', {
+      // 1. Upload image to Cloudinary
+      const CLOUDINARY_URL = 'https://api.cloudinary.com/v1_1/dsvc9y4rq/image/upload';
+      const UPLOAD_PRESET = 'damage';
+      const data = new FormData();
+      data.append('file', {
         uri: imageAsset.uri,
         type: imageAsset.mimeType || 'image/jpeg',
         name: imageAsset.fileName || 'civic-image.jpg',
       });
-
-      console.log('📡 Sending validation request to:', `${API_BASE_URL}/image-analysis/validate`);
-
-      const response = await fetch(`${API_BASE_URL}/image-analysis/validate`, {
+      data.append('upload_preset', UPLOAD_PRESET);
+      const cloudRes = await fetch(CLOUDINARY_URL, {
         method: 'POST',
-        body: formData,
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+        body: data,
       });
-
-      const result = await response.json();
+      const cloudResult = await cloudRes.json();
+      if (!cloudResult.secure_url) throw new Error('Cloudinary upload failed');
+      // 2. Send imageUrl to backend for validation
+      const validateRes = await fetch(`${API_BASE_URL}/image-analysis/validate-image`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageUrl: cloudResult.secure_url }),
+      });
+      const result = await validateRes.json();
       console.log('📋 Validation result:', result);
-
-      setImageValidation(result);
-
-      if (result.allowUpload) {
-        Alert.alert(
-          '✅ Valid Civic Issue Detected!',
-          `Priority Score: ${(result.data.priorityScore * 100).toFixed(1)}%\nUrgency: ${result.data.urgencyLevel.toUpperCase()}\n\nDetected Issues: ${result.data.detectedIssues.map(issue => issue.detectedClass).join(', ')}`,
-          [{ text: 'Continue', style: 'default' }]
-        );
+      // Use a confidence threshold for validation
+      const threshold = 0.7;
+      const allowUpload = result.confidence !== undefined && result.confidence >= threshold;
+      setImageValidation({ ...result, allowUpload });
+      // Automatically delete invalid images from Cloudinary via backend
+      if (!allowUpload && cloudResult.public_id) {
+        try {
+          const deleteRes = await fetch(`${API_BASE_URL}/cloudinary/delete-image`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ public_id: cloudResult.public_id })
+          });
+          const deleteResult = await deleteRes.json();
+          console.log('🗑️ Cloudinary delete response:', deleteResult);
+        } catch (deleteErr) {
+          console.warn('⚠️ Failed to delete image from Cloudinary:', deleteErr);
+        }
+      }
+      if (result.confidence !== undefined) {
+        if (allowUpload) {
+          Alert.alert(
+            '✅ Valid Civic Issue Detected!',
+            `Confidence Score: ${(result.confidence * 100).toFixed(1)}%`,
+            [{ text: 'Continue', style: 'default' }]
+          );
+        } else {
+          Alert.alert(
+            '❌ Image Validation Failed',
+            `Confidence Score: ${(result.confidence * 100).toFixed(1)}%\nThe selected image does not appear to show a valid civic issue. Please select a different image.`,
+            [
+              { text: 'Change Image', onPress: () => setSelectedImage(null) },
+              { text: 'Submit Anyway', style: 'destructive' }
+            ]
+          );
+        }
       } else {
         Alert.alert(
           '❌ Image Validation Failed',
-          result.message + (result.suggestion ? `\n\n💡 Suggestion: ${result.suggestion}` : ''),
+          result.message || 'Validation failed.',
           [
             { text: 'Try Again', onPress: () => setSelectedImage(null) },
             { text: 'Keep Anyway', style: 'destructive' }
           ]
         );
       }
-
     } catch (error) {
       console.error('❌ Image validation error:', error);
       Alert.alert(
-        'Validation Error', 
+        'Validation Error',
         'Failed to validate image. Please check your connection and try again.',
         [
           { text: 'Retry', onPress: () => validateImage(imageAsset) },
@@ -186,7 +213,7 @@ const SubmitComplaintScreen = ({ navigation }) => {
       console.log('📤 Submitting complaint with data:', {
         ...formData,
         imageValidation: imageValidation?.allowUpload ? 'PASSED' : 'FAILED',
-        priorityScore: imageValidation?.data?.priorityScore || 0
+        priorityScore: imageValidation?.data?.priorityScore !== undefined ? imageValidation.data.priorityScore : 0
       });
 
       // Simulate API call
@@ -195,7 +222,7 @@ const SubmitComplaintScreen = ({ navigation }) => {
       Alert.alert(
         '✅ Complaint Submitted Successfully!',
         imageValidation?.allowUpload 
-          ? `Your complaint has been submitted with priority score: ${(imageValidation.data.priorityScore * 100).toFixed(1)}%`
+          ? `Your complaint has been submitted with priority score: ${imageValidation?.data?.priorityScore !== undefined ? (imageValidation.data.priorityScore * 100).toFixed(1) : 'N/A'}%`
           : 'Your complaint has been submitted for review.',
         [{ text: 'OK', onPress: () => navigation.goBack() }]
       );
@@ -223,7 +250,7 @@ const SubmitComplaintScreen = ({ navigation }) => {
         return (
           <View style={[styles.validationStatus, styles.validationSuccess]}>
             <Text style={styles.validationText}>
-              ✅ Valid civic issue detected! Priority: {(imageValidation.data.priorityScore * 100).toFixed(1)}%
+              ✅ Valid civic issue detected! Priority: {imageValidation?.data?.priorityScore !== undefined ? (imageValidation.data.priorityScore * 100).toFixed(1) : 'N/A'}%
             </Text>
           </View>
         );

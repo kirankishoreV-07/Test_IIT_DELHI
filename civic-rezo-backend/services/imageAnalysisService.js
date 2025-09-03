@@ -19,6 +19,61 @@ class ImageAnalysisService {
         console.log(`   API URL: ${this.apiUrl}`);
     }
 
+    /**
+     * Static method to validate image using Roboflow
+     * @param {string} base64Image - The image in base64 format
+     * @returns {Promise<{confidence: number, raw: any}>}
+     */
+    static async validateImageWithRoboflow(imageUrl) {
+        const ROBOFLOW_API_KEY = process.env.ROBOFLOW_API_KEY || 'YOUR_ROBOFLOW_API_KEY';
+        const ROBOFLOW_MODEL_ENDPOINT = process.env.ROBOFLOW_MODEL_ENDPOINT || 'https://serverless.roboflow.com/infer/workflows/civicrezo/custom-workflow-6';
+        try {
+            const response = await axios.post(
+                ROBOFLOW_MODEL_ENDPOINT,
+                {
+                    api_key: ROBOFLOW_API_KEY,
+                    inputs: {
+                        image: { type: 'url', value: imageUrl }
+                    }
+                },
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    timeout: 15000
+                }
+            );
+            // Parse Roboflow output for highest confidence and validation
+            let confidence = 0;
+            let allowUpload = true;
+            let message = '';
+            const raw = response.data;
+            if (raw && raw.outputs && Array.isArray(raw.outputs)) {
+                for (const output of raw.outputs) {
+                    const preds = output?.predictions?.predictions;
+                    const img = output?.predictions?.image;
+                    // Invalidate if predictions array is empty or dimensions are null
+                    if (!Array.isArray(preds) || preds.length === 0 || img?.width == null || img?.height == null) {
+                        allowUpload = false;
+                        message = 'No valid civic issue detected in image.';
+                    } else {
+                        const maxConf = Math.max(...preds.map(p => p.confidence || 0));
+                        if (maxConf > confidence) confidence = maxConf;
+                    }
+                }
+            }
+            // If workflow error or failed to assemble image
+            if (raw?.error || raw?.message?.includes('Failed to assemble')) {
+                allowUpload = false;
+                message = raw?.message || 'Image validation failed.';
+            }
+            return { confidence, allowUpload, message, raw };
+        } catch (error) {
+            console.error('Roboflow validation error:', error.message);
+            return { confidence: 0, allowUpload: false, message: error.message || 'Image validation failed', raw: null };
+        }
+    }
+
     async validateAndAnalyzeImage(imagePath) {
         try {
             console.log('🔍 Starting image validation and analysis...');
@@ -524,3 +579,4 @@ class ImageAnalysisService {
 }
 
 module.exports = ImageAnalysisService;
+module.exports.validateImageWithRoboflow = ImageAnalysisService.validateImageWithRoboflow;

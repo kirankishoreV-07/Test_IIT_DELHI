@@ -17,7 +17,8 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 
 // Dynamic API URL configuration for any device/network
 const getApiBaseUrl = () => {
-  const PORT = 3000;
+  // Backend default port (matches backend/server.js)
+  const PORT = Number(process.env.EXPO_PUBLIC_API_PORT || 3001);
   
   if (!__DEV__) {
     // Production mode - use environment variable or fallback
@@ -36,8 +37,8 @@ const getApiBaseUrl = () => {
   let hostUrl;
   
   // Try to get the development server URL from Expo
-  const manifest = Constants.expoConfig;
-  const debuggerHost = manifest?.hostUri;
+  const manifest = Constants.expoConfig || Constants.manifest; // support older/newer Expo
+  const debuggerHost = manifest?.hostUri || manifest?.developer?.hostUri;
   
   if (debuggerHost) {
     // Extract IP from debuggerHost (format: "192.168.x.x:19000")
@@ -46,7 +47,8 @@ const getApiBaseUrl = () => {
   } else {
     // Fallback IPs for common network configurations
     const fallbackIPs = [
-      '192.168.29.237', // Your current IP
+      // Put your LAN IP first if you know it; we'll try a common private range as a sensible default
+      '192.168.1.100',
       '192.168.1.1',    // Common router IP
       '192.168.0.1',    // Alternative router IP
       '10.0.0.1',       // Corporate network
