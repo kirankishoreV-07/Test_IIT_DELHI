@@ -104,7 +104,7 @@ class ImageAnalysisService {
                     if (modelConfidence >= threshold) {
                         confidence = modelConfidence;
                         allowUpload = true;
-                        message = `Valid civic issue detected by model: ${modelPrediction || 'unknown'}`;
+                        message = `Detected Issue: ${modelPrediction || 'unknown'}`;
                     } else if (openaiConfidence > 0) {
                         confidence = openaiConfidence;
                         allowUpload = openaiConfidence >= threshold;
@@ -113,10 +113,10 @@ class ImageAnalysisService {
                             message = 'No valid civic issue detected in image (OpenAI fallback).';
                         } else if (openaiConfidence >= threshold) {
                             allowUpload = true;
-                            message = `OpenAI fallback: ${openaiPrediction || 'unknown'} (Confidence: ${openaiConfidence})`;
+                            message = `Detected Issue: ${openaiPrediction || 'unknown'}`;
                         } else {
                             allowUpload = false;
-                            message = `OpenAI fallback: ${openaiPrediction || 'unknown'} (Confidence: ${openaiConfidence})`;
+                            message = `Detected Issue: ${openaiPrediction || 'unknown'}`;
                         }
                     } else {
                         confidence = 0;
