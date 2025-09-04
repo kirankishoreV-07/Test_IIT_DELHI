@@ -21,8 +21,8 @@ class ImageAnalysisService {
 
     /**
      * Static method to validate image using Roboflow
-     * @param {string} base64Image - The image in base64 format
-     * @returns {Promise<{confidence: number, raw: any}>}
+     * @param {string} imageUrl - The image URL
+     * @returns {Promise<{confidence: number, modelConfidence: number, openaiConfidence: number, allowUpload: boolean, message: string, raw: any}>}
      */
     static async validateImageWithRoboflow(imageUrl) {
         const ROBOFLOW_API_KEY = process.env.ROBOFLOW_API_KEY || 'YOUR_ROBOFLOW_API_KEY';
@@ -43,34 +43,100 @@ class ImageAnalysisService {
                     timeout: 15000
                 }
             );
-            // Parse Roboflow output for highest confidence and validation
+            // Parse new workflow output format
+            let modelConfidence = 0;
+            let openaiConfidence = 0;
             let confidence = 0;
-            let allowUpload = true;
+            let allowUpload = false;
             let message = '';
+            let modelPrediction = null;
+            let openaiPrediction = null;
             const raw = response.data;
-            if (raw && raw.outputs && Array.isArray(raw.outputs)) {
-                for (const output of raw.outputs) {
-                    const preds = output?.predictions?.predictions;
-                    const img = output?.predictions?.image;
-                    // Invalidate if predictions array is empty or dimensions are null
-                    if (!Array.isArray(preds) || preds.length === 0 || img?.width == null || img?.height == null) {
+            const threshold = 0.7;
+
+            if (raw && Array.isArray(raw.outputs)) {
+                console.log('🔍 Roboflow workflow outputs:', JSON.stringify(raw.outputs, null, 2));
+                for (const outputObj of raw.outputs) {
+                    const output2 = outputObj.output2;
+                    const outputText = outputObj.output;
+
+                    // Model output parsing
+                    if (output2 && Array.isArray(output2.predictions) && output2.predictions.length > 0 && output2.image?.width && output2.image?.height) {
+                        modelConfidence = Math.max(...output2.predictions.map(p => p.confidence || 0));
+                        modelPrediction = output2.predictions[0]?.class || output2.predictions[0]?.label || null;
+                    }
+
+                    // OpenAI output parsing
+                    if (outputText) {
+                        let openaiObj = null;
+                        try {
+                            openaiObj = JSON.parse(outputText);
+                        } catch (e) {}
+                        if (openaiObj && typeof openaiObj === 'object' && (openaiObj.confidence !== undefined || openaiObj.confidence !== null)) {
+                            openaiPrediction = openaiObj.prediction || null;
+                            openaiConfidence = Number(openaiObj.confidence);
+                        } else {
+                            const predMatch = outputText.match(/prediction:\s*([^\n,]+)/i);
+                            openaiPrediction = predMatch ? predMatch[1].trim() : null;
+                            let confMatch = outputText.match(/confidence:\s*(\d*\.?\d+)/i);
+                            if (!confMatch) {
+                                confMatch = outputText.match(/,\s*confidence:\s*(\d*\.?\d+)/i);
+                            }
+                            openaiConfidence = confMatch ? parseFloat(confMatch[1]) : 0;
+                            if (!openaiPrediction && outputText.includes(',')) {
+                                openaiPrediction = outputText.split(',')[0].trim();
+                            }
+                        }
+                    }
+
+                    // Log both model and OpenAI results for debugging
+                    console.log('🧠 Model result:', {
+                        prediction: modelPrediction,
+                        confidence: modelConfidence
+                    });
+                    console.log('🤖 OpenAI result:', {
+                        prediction: openaiPrediction,
+                        confidence: openaiConfidence,
+                        outputText
+                    });
+
+                    // Decision logic: Use model confidence if >= threshold, otherwise use OpenAI confidence if present
+                    if (modelConfidence >= threshold) {
+                        confidence = modelConfidence;
+                        allowUpload = true;
+                        message = `Valid civic issue detected by model: ${modelPrediction || 'unknown'}`;
+                    } else if (openaiConfidence > 0) {
+                        confidence = openaiConfidence;
+                        allowUpload = openaiConfidence >= threshold;
+                        if (openaiPrediction === 'None' || openaiConfidence === 0) {
+                            allowUpload = false;
+                            message = 'No valid civic issue detected in image (OpenAI fallback).';
+                        } else if (openaiConfidence >= threshold) {
+                            allowUpload = true;
+                            message = `OpenAI fallback: ${openaiPrediction || 'unknown'} (Confidence: ${openaiConfidence})`;
+                        } else {
+                            allowUpload = false;
+                            message = `OpenAI fallback: ${openaiPrediction || 'unknown'} (Confidence: ${openaiConfidence})`;
+                        }
+                    } else {
+                        confidence = 0;
                         allowUpload = false;
                         message = 'No valid civic issue detected in image.';
-                    } else {
-                        const maxConf = Math.max(...preds.map(p => p.confidence || 0));
-                        if (maxConf > confidence) confidence = maxConf;
                     }
                 }
+            } else {
+                allowUpload = false;
+                message = 'Invalid workflow response format.';
             }
             // If workflow error or failed to assemble image
             if (raw?.error || raw?.message?.includes('Failed to assemble')) {
                 allowUpload = false;
                 message = raw?.message || 'Image validation failed.';
             }
-            return { confidence, allowUpload, message, raw };
+            return { confidence, modelConfidence, openaiConfidence, allowUpload, message, raw };
         } catch (error) {
             console.error('Roboflow validation error:', error.message);
-            return { confidence: 0, allowUpload: false, message: error.message || 'Image validation failed', raw: null };
+            return { confidence: 0, modelConfidence: 0, openaiConfidence: 0, allowUpload: false, message: error.message || 'Image validation failed', raw: null };
         }
     }
 
@@ -102,15 +168,13 @@ class ImageAnalysisService {
 
             const analysisResult = await this.runWorkflow(imagePath);
             
-            // If the analysis result already has the proper structure (like from fallback), return it directly
             if (analysisResult && typeof analysisResult.allowUpload === 'boolean') {
                 return analysisResult;
             }
             
-            // Otherwise, process the workflow result
             return {
                 success: true,
-                allowUpload: true, // Default to allowing upload if we reach this point
+                allowUpload: true,
                 stage: 'workflow_analysis',
                 reason: 'Image analysis completed successfully',
                 priorityScore: analysisResult?.priorityScore || 75,
@@ -227,9 +291,7 @@ class ImageAnalysisService {
         }
     }
 
-    // Equivalent to Python's client.run_workflow() method
     async runWorkflow(imagePath) {
-        // Quick development mode - skip API calls for faster testing
         const QUICK_DEV_MODE = process.env.QUICK_DEV_MODE === 'true';
         
         if (QUICK_DEV_MODE) {
@@ -252,25 +314,18 @@ class ImageAnalysisService {
                 return this.getFallbackAnalysis();
             }
 
-            // Read image file and prepare for upload
             const imageBuffer = fs.readFileSync(imagePath);
-            
-            // Create form data - equivalent to Python SDK's image handling
             const FormData = require('form-data');
             const form = new FormData();
             
-            // Add image with the key expected by the API
             form.append('image', imageBuffer, {
                 filename: 'civic_issue.jpg',
                 contentType: 'image/jpeg'
             });
 
-            // Try different endpoint formats - focus on most likely to work first
             const possibleUrls = [
-                // Standard Roboflow inference endpoints with API key parameter
                 `https://detect.roboflow.com/${this.workspaceName}/${this.workflowId}?api_key=${this.apiKey}`,
                 `https://api.roboflow.com/${this.workspaceName}/${this.workflowId}?api_key=${this.apiKey}`,
-                // Workflow-specific endpoints
                 `${this.apiUrl}/${this.workspaceName}/${this.workflowId}?api_key=${this.apiKey}`,
                 `${this.apiUrl}/workflows/${this.workspaceName}/${this.workflowId}`
             ];
@@ -278,7 +333,6 @@ class ImageAnalysisService {
             let response = null;
             let successfulUrl = null;
             
-            // Try each URL format with shorter timeouts for faster feedback
             for (let i = 0; i < possibleUrls.length; i++) {
                 const workflowUrl = possibleUrls[i];
                 console.log(`🚀 Trying endpoint ${i + 1}/${possibleUrls.length}: ${workflowUrl}`);
@@ -290,7 +344,7 @@ class ImageAnalysisService {
                             'Authorization': `Bearer ${this.apiKey}`,
                             'User-Agent': 'CivicRezo/1.0 (Node.js HTTP Client)'
                         },
-                        timeout: 8000, // Even shorter timeout for faster feedback
+                        timeout: 8000,
                         maxContentLength: Infinity,
                         maxBodyLength: Infinity
                     });
@@ -298,7 +352,7 @@ class ImageAnalysisService {
                     console.log(`✅ Endpoint ${i + 1} succeeded!`);
                     response = attemptResponse;
                     successfulUrl = workflowUrl;
-                    break; // Stop trying other URLs
+                    break;
                     
                 } catch (urlError) {
                     console.log(`❌ Endpoint ${i + 1} failed:`, {
@@ -307,11 +361,9 @@ class ImageAnalysisService {
                         error: urlError.response?.data?.detail || urlError.message
                     });
                     
-                    // If this is the last URL and it failed, throw the error
                     if (i === possibleUrls.length - 1) {
                         throw urlError;
                     }
-                    // Otherwise, continue to the next URL
                 }
             }
             
@@ -332,7 +384,6 @@ class ImageAnalysisService {
         } catch (error) {
             console.error('❌ Roboflow workflow analysis failed:', error.message);
             
-            // Detailed error logging for debugging
             if (error.response) {
                 console.error(`🔍 Response status: ${error.response.status}`);
                 console.error('🔍 Response data:', error.response.data);
@@ -392,26 +443,21 @@ class ImageAnalysisService {
         try {
             console.log('📄 Processing workflow response...');
             
-            // Handle different response formats from Roboflow workflows
             if (!responseData) {
                 console.log('⚠️ Empty response data');
                 return this.getFallbackAnalysis();
             }
 
-            // Log the full response for debugging
             console.log('🔍 Full response structure:', JSON.stringify(responseData, null, 2));
 
             let predictions = [];
             let hasIssues = false;
 
-            // Handle different response formats
             if (responseData.predictions && Array.isArray(responseData.predictions)) {
-                // Standard detection format
                 console.log(`📊 Found ${responseData.predictions.length} predictions`);
                 predictions = responseData.predictions.map(pred => this.formatPrediction(pred));
                 hasIssues = predictions.length > 0;
             } else if (responseData.outputs) {
-                // Workflow outputs format
                 console.log('📊 Processing workflow outputs...');
                 for (const [outputKey, outputValue] of Object.entries(responseData.outputs)) {
                     console.log(`   Processing output: ${outputKey}`);
@@ -423,7 +469,6 @@ class ImageAnalysisService {
                     }
                 }
             } else if (responseData.result) {
-                // Alternative result format
                 console.log('📊 Processing result data...');
                 if (responseData.result.predictions) {
                     predictions = responseData.result.predictions.map(pred => this.formatPrediction(pred));
@@ -441,7 +486,7 @@ class ImageAnalysisService {
                     workflowId: this.workflowId,
                     responseTime: new Date().toISOString(),
                     predictionCount: predictions.length,
-                    rawResponse: responseData // Include for debugging
+                    rawResponse: responseData
                 }
             };
 
@@ -530,7 +575,6 @@ class ImageAnalysisService {
         const maxPriority = Math.max(...priorities);
         const avgPriority = priorities.reduce((sum, p) => sum + p, 0) / priorities.length;
         
-        // Weight towards maximum priority but consider average
         return Math.round((maxPriority * 0.7 + avgPriority * 0.3) * 100) / 100;
     }
 

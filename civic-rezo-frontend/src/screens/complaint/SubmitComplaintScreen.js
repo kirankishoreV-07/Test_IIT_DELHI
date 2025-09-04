@@ -28,7 +28,6 @@ const SubmitComplaintScreen = ({ navigation }) => {
 
   const pickImage = async () => {
     try {
-      // Request permissions
       const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
       
       if (permissionResult.granted === false) {
@@ -46,7 +45,7 @@ const SubmitComplaintScreen = ({ navigation }) => {
 
       if (!result.canceled) {
         setSelectedImage(result.assets[0]);
-        setImageValidation(null); // Reset previous validation
+        setImageValidation(null);
         await validateImage(result.assets[0]);
       }
     } catch (error) {
@@ -57,7 +56,6 @@ const SubmitComplaintScreen = ({ navigation }) => {
 
   const takePhoto = async () => {
     try {
-      // Request permissions
       const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
       
       if (permissionResult.granted === false) {
@@ -74,7 +72,7 @@ const SubmitComplaintScreen = ({ navigation }) => {
 
       if (!result.canceled) {
         setSelectedImage(result.assets[0]);
-        setImageValidation(null); // Reset previous validation
+        setImageValidation(null);
         await validateImage(result.assets[0]);
       }
     } catch (error) {
@@ -88,7 +86,6 @@ const SubmitComplaintScreen = ({ navigation }) => {
     setValidatingImage(true);
     try {
       console.log('🔍 Starting image validation...');
-      // 1. Upload image to Cloudinary
       const CLOUDINARY_URL = 'https://api.cloudinary.com/v1_1/dsvc9y4rq/image/upload';
       const UPLOAD_PRESET = 'damage';
       const data = new FormData();
@@ -104,7 +101,6 @@ const SubmitComplaintScreen = ({ navigation }) => {
       });
       const cloudResult = await cloudRes.json();
       if (!cloudResult.secure_url) throw new Error('Cloudinary upload failed');
-      // 2. Send imageUrl to backend for validation
       const validateRes = await fetch(`${API_BASE_URL}/image-analysis/validate-image`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -112,17 +108,25 @@ const SubmitComplaintScreen = ({ navigation }) => {
       });
       const result = await validateRes.json();
       console.log('📋 Validation result:', result);
-      // Use a confidence threshold for validation
-      const threshold = 0.7;
-      const allowUpload = result.confidence !== undefined && result.confidence >= threshold;
-      setImageValidation({ ...result, allowUpload });
-      // Automatically delete invalid images from Cloudinary via backend
-      if (!allowUpload && cloudResult.public_id) {
+
+      // Ensure result has expected fields, provide defaults if missing
+      const validationData = {
+        confidence: result.confidence || 0,
+        modelConfidence: result.modelConfidence || 0,
+        openaiConfidence: result.openaiConfidence || 0,
+        allowUpload: result.allowUpload || false,
+        message: result.message || 'No validation message provided',
+        raw: result.raw || null,
+      };
+      setImageValidation(validationData);
+
+      // Delete invalid images from Cloudinary
+      if (!validationData.allowUpload && cloudResult.public_id) {
         try {
           const deleteRes = await fetch(`${API_BASE_URL}/cloudinary/delete-image`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ public_id: cloudResult.public_id })
+            body: JSON.stringify({ public_id: cloudResult.public_id }),
           });
           const deleteResult = await deleteRes.json();
           console.log('🗑️ Cloudinary delete response:', deleteResult);
@@ -130,31 +134,36 @@ const SubmitComplaintScreen = ({ navigation }) => {
           console.warn('⚠️ Failed to delete image from Cloudinary:', deleteErr);
         }
       }
-      if (result.confidence !== undefined) {
-        if (allowUpload) {
+
+      // Determine display confidence
+      const displayConfidence = validationData.modelConfidence >= 0.7 ? validationData.modelConfidence : validationData.openaiConfidence;
+
+      // Show alert based on validation result
+      if (typeof displayConfidence === 'number' && !isNaN(displayConfidence)) {
+        if (validationData.allowUpload) {
           Alert.alert(
             '✅ Valid Civic Issue Detected!',
-            `Confidence Score: ${(result.confidence * 100).toFixed(1)}%`,
-            [{ text: 'Continue', style: 'default' }]
+            `${validationData.message}\nConfidence Score: ${(displayConfidence * 100).toFixed(1)}%`,
+            [{ text: 'Continue', style: 'default' }],
           );
         } else {
           Alert.alert(
             '❌ Image Validation Failed',
-            `Confidence Score: ${(result.confidence * 100).toFixed(1)}%\nThe selected image does not appear to show a valid civic issue. Please select a different image.`,
+            `${validationData.message}\nConfidence Score: ${(displayConfidence * 100).toFixed(1)}%`,
             [
               { text: 'Change Image', onPress: () => setSelectedImage(null) },
-              { text: 'Submit Anyway', style: 'destructive' }
-            ]
+              { text: 'Submit Anyway', style: 'destructive' },
+            ],
           );
         }
       } else {
         Alert.alert(
           '❌ Image Validation Failed',
-          result.message || 'Validation failed.',
+          validationData.message || 'Validation failed due to invalid confidence score.',
           [
             { text: 'Try Again', onPress: () => setSelectedImage(null) },
-            { text: 'Keep Anyway', style: 'destructive' }
-          ]
+            { text: 'Keep Anyway', style: 'destructive' },
+          ],
         );
       }
     } catch (error) {
@@ -164,8 +173,8 @@ const SubmitComplaintScreen = ({ navigation }) => {
         'Failed to validate image. Please check your connection and try again.',
         [
           { text: 'Retry', onPress: () => validateImage(imageAsset) },
-          { text: 'Skip Validation', style: 'destructive' }
-        ]
+          { text: 'Skip Validation', style: 'destructive' },
+        ],
       );
     } finally {
       setValidatingImage(false);
@@ -189,13 +198,14 @@ const SubmitComplaintScreen = ({ navigation }) => {
     }
 
     if (imageValidation && !imageValidation.allowUpload) {
+      const displayConfidence = imageValidation.modelConfidence >= 0.7 ? imageValidation.modelConfidence : imageValidation.openaiConfidence;
       Alert.alert(
         'Image Validation Failed',
-        'The selected image does not appear to show a valid civic issue. Please select a different image.',
+        `The selected image does not appear to show a valid civic issue.\nConfidence Score: ${(typeof displayConfidence === 'number' && !isNaN(displayConfidence) ? (displayConfidence * 100).toFixed(1) : 'N/A')}%`,
         [
           { text: 'Change Image', onPress: () => setSelectedImage(null) },
-          { text: 'Submit Anyway', style: 'destructive', onPress: () => proceedWithSubmission() }
-        ]
+          { text: 'Submit Anyway', style: 'destructive', onPress: () => proceedWithSubmission() },
+        ],
       );
       return;
     }
@@ -207,26 +217,22 @@ const SubmitComplaintScreen = ({ navigation }) => {
     setLoading(true);
     
     try {
-      // Here you would implement the actual complaint submission
-      // For now, we'll just show a success message
-      
       console.log('📤 Submitting complaint with data:', {
         ...formData,
         imageValidation: imageValidation?.allowUpload ? 'PASSED' : 'FAILED',
-        priorityScore: imageValidation?.data?.priorityScore !== undefined ? imageValidation.data.priorityScore : 0
+        priorityScore: imageValidation?.data?.priorityScore !== undefined ? imageValidation.data.priorityScore : 0,
       });
 
-      // Simulate API call
       await new Promise(resolve => setTimeout(resolve, 2000));
 
+      const displayConfidence = imageValidation?.modelConfidence >= 0.7 ? imageValidation.modelConfidence : imageValidation?.openaiConfidence;
       Alert.alert(
         '✅ Complaint Submitted Successfully!',
-        imageValidation?.allowUpload 
-          ? `Your complaint has been submitted with priority score: ${imageValidation?.data?.priorityScore !== undefined ? (imageValidation.data.priorityScore * 100).toFixed(1) : 'N/A'}%`
+        imageValidation?.allowUpload
+          ? `Your complaint has been submitted with priority score: ${imageValidation?.data?.priorityScore !== undefined ? (imageValidation.data.priorityScore * 100).toFixed(1) : 'N/A'}%\nConfidence Score: ${(typeof displayConfidence === 'number' && !isNaN(displayConfidence) ? (displayConfidence * 100).toFixed(1) : 'N/A')}%`
           : 'Your complaint has been submitted for review.',
-        [{ text: 'OK', onPress: () => navigation.goBack() }]
+        [{ text: 'OK', onPress: () => navigation.goBack() }],
       );
-
     } catch (error) {
       console.error('❌ Submission error:', error);
       Alert.alert('Error', 'Failed to submit complaint. Please try again.');
@@ -246,18 +252,23 @@ const SubmitComplaintScreen = ({ navigation }) => {
     }
 
     if (imageValidation) {
+      const displayConfidence = imageValidation.modelConfidence >= 0.7 ? imageValidation.modelConfidence : imageValidation.openaiConfidence;
       if (imageValidation.allowUpload) {
         return (
           <View style={[styles.validationStatus, styles.validationSuccess]}>
             <Text style={styles.validationText}>
               ✅ Valid civic issue detected! Priority: {imageValidation?.data?.priorityScore !== undefined ? (imageValidation.data.priorityScore * 100).toFixed(1) : 'N/A'}%
+              {'\n'}Confidence Score: {(typeof displayConfidence === 'number' && !isNaN(displayConfidence) ? (displayConfidence * 100).toFixed(1) : 'N/A')}%
             </Text>
           </View>
         );
       } else {
         return (
           <View style={[styles.validationStatus, styles.validationError]}>
-            <Text style={styles.validationText}>❌ {imageValidation.message}</Text>
+            <Text style={styles.validationText}>
+              ❌ {imageValidation.message || 'Validation failed'}
+              {'\n'}Confidence Score: {(typeof displayConfidence === 'number' && !isNaN(displayConfidence) ? (displayConfidence * 100).toFixed(1) : 'N/A')}%
+            </Text>
           </View>
         );
       }

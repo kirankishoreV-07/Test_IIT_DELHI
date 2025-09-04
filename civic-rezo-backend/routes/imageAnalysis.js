@@ -160,6 +160,10 @@ router.post('/validate-image', async (req, res) => {
             return res.json({
                 success: true,
                 confidence: result.confidence,
+                allowUpload: result.allowUpload,
+                message: result.message,
+                modelConfidence: result.modelConfidence,
+                openaiConfidence: result.openaiConfidence,
                 raw: result.raw
             });
         }
