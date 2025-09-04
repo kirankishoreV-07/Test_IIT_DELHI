@@ -17,73 +17,46 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 
 // Dynamic API URL configuration for any device/network
 const getApiBaseUrl = () => {
-  // Backend default port (matches backend/server.js)
   const PORT = Number(process.env.EXPO_PUBLIC_API_PORT || 3001);
-  
   if (!__DEV__) {
-    // Production mode - use environment variable or fallback
     return process.env.EXPO_PUBLIC_API_URL 
-      ? `${process.env.EXPO_PUBLIC_API_URL}/api`
-      : 'https://your-production-api.com/api';
+      ? `${process.env.EXPO_PUBLIC_API_URL}`
+      : 'https://your-production-api.com';
   }
-
-  // Development mode - auto-detect the best URL based on platform
   if (Platform.OS === 'web') {
-    // Web platform - use localhost
-    return `http://localhost:${PORT}/api`;
+    return `http://localhost:${PORT}`;
   }
-
   // Mobile platforms (iOS/Android)
-  let hostUrl;
-  
-  // Try to get the development server URL from Expo
-  const manifest = Constants.expoConfig || Constants.manifest; // support older/newer Expo
+  const manifest = Constants.expoConfig || Constants.manifest;
   const debuggerHost = manifest?.hostUri || manifest?.developer?.hostUri;
-  
   if (debuggerHost) {
-    // Extract IP from debuggerHost (format: "192.168.x.x:19000")
     const host = debuggerHost.split(':')[0];
-    hostUrl = `http://${host}:${PORT}/api`;
+    return `http://${host}:${PORT}`;
   } else {
-    // Fallback IPs for common network configurations
     const fallbackIPs = [
-      // Put your LAN IP first if you know it; we'll try a common private range as a sensible default
       '192.168.1.100',
-      '192.168.1.1',    // Common router IP
-      '192.168.0.1',    // Alternative router IP
-      '10.0.0.1',       // Corporate network
-      'localhost'       // Last resort
+      '192.168.1.1',
+      '192.168.0.1',
+      '10.0.0.1',
+      'localhost'
     ];
-    
-    // Use the first IP as primary (your current network)
-    hostUrl = `http://${fallbackIPs[0]}:${PORT}/api`;
+    return `http://${fallbackIPs[0]}:${PORT}`;
   }
-  
-  return hostUrl;
 };
 
-// API configuration - Works on any device
 export const API_BASE_URL = getApiBaseUrl();
 
-console.log('🔗 API_BASE_URL configured as:', API_BASE_URL);
-console.log('📱 Platform:', Platform.OS);
-console.log('🔧 Development mode:', __DEV__);
-
-export const apiClient = {
-  // Auth endpoints
-  auth: {
-    login: `${API_BASE_URL}/auth/login`,
-    signup: `${API_BASE_URL}/auth/signup`,
-    profile: `${API_BASE_URL}/auth/profile`,
-  },
-  // Complaint endpoints
+// API endpoints
+export const API_ENDPOINTS = {
   complaints: {
     all: `${API_BASE_URL}/complaints/all`,
     create: `${API_BASE_URL}/complaints/create`,
   },
-  // Admin endpoints
   admin: {
     dashboard: `${API_BASE_URL}/admin/dashboard`,
+  },
+  transcribe: {
+    audio: `${API_BASE_URL}/transcribe/audio`,
   },
 };
 

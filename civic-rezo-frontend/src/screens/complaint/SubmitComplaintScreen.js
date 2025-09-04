@@ -1,4 +1,7 @@
 import React, { useState } from 'react';
+import { Picker } from '@react-native-picker/picker';
+import { Ionicons } from '@expo/vector-icons';
+import { Audio } from 'expo-av';
 import {
   View,
   Text,
@@ -15,16 +18,86 @@ import { API_BASE_URL } from '../../../config/supabase';
 import { supabase } from '../../../config/supabase';
 
 const SubmitComplaintScreen = ({ navigation }) => {
+  const [selectedLang, setSelectedLang] = useState('en');
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     location: '',
     category: '',
   });
+  const [isRecording, setIsRecording] = useState(false);
+  const [recording, setRecording] = useState(null);
+  const [voiceError, setVoiceError] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
   const [imageValidation, setImageValidation] = useState(null);
   const [loading, setLoading] = useState(false);
   const [validatingImage, setValidatingImage] = useState(false);
+
+  // Expo audio recording logic
+  const startVoiceInput = async () => {
+    setVoiceError(null);
+    console.log('Selected language before recording:', selectedLang);
+    try {
+      const { status } = await Audio.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please allow microphone access to record your complaint.');
+        return;
+      }
+      setIsRecording(true);
+      const rec = new Audio.Recording();
+      await rec.prepareToRecordAsync(Audio.RECORDING_OPTIONS_PRESET_HIGH_QUALITY);
+      await rec.startAsync();
+      setRecording(rec);
+    } catch (err) {
+      setVoiceError(err.message);
+      Alert.alert('Error', 'Audio recording failed.');
+    }
+  };
+
+  const stopVoiceInput = async () => {
+    try {
+      if (recording) {
+        await recording.stopAndUnloadAsync();
+        const uri = recording.getURI();
+        setIsRecording(false);
+        setRecording(null);
+        // Ask user for language (or use a dropdown/select in UI)
+        // For demo, default to 'en'. Replace with your UI logic.
+        const selectedLang = 'en'; // e.g. 'hi', 'te', etc.
+        const formData = new FormData();
+        formData.append('audio', {
+          uri,
+          type: 'audio/x-wav',
+          name: 'voice.wav',
+        });
+        formData.append('lang', selectedLang);
+  console.log('Selected language after recording:', selectedLang);
+        const response = await fetch(`${API_BASE_URL}/transcribe/audio`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+          body: formData,
+        });
+        const result = await response.json();
+        console.log('Transcription response:', result);
+        console.log('originalText:', result.originalText);
+        console.log('translatedText:', result.translatedText);
+        console.log('googleResponse:', result.googleResponse);
+        if (result.success && (result.originalText || result.translatedText)) {
+          setFormData(prev => ({ ...prev, description: result.originalText }));
+          if (result.translatedText && result.translatedText !== result.originalText) {
+            Alert.alert('English Translation', result.translatedText);
+          }
+        } else {
+          Alert.alert('Transcription Error', result.message || 'Could not transcribe audio.');
+        }
+      }
+    } catch (err) {
+      setVoiceError(err.message);
+      Alert.alert('Error', 'Speech-to-text failed.');
+    }
+  };
 
   const pickImage = async () => {
     try {
@@ -101,7 +174,7 @@ const SubmitComplaintScreen = ({ navigation }) => {
       });
       const cloudResult = await cloudRes.json();
       if (!cloudResult.secure_url) throw new Error('Cloudinary upload failed');
-      const validateRes = await fetch(`${API_BASE_URL}/image-analysis/validate-image`, {
+      const validateRes = await fetch(`${API_BASE_URL}/api/image-analysis/validate-image`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ imageUrl: cloudResult.secure_url }),
@@ -293,15 +366,35 @@ const SubmitComplaintScreen = ({ navigation }) => {
           onChangeText={(text) => setFormData(prev => ({ ...prev, title: text }))}
         />
 
+        {/* Language Picker for Speech-to-Text */}
+        <Text style={{ fontWeight: 'bold', marginBottom: 4 }}>Select Spoken Language:</Text>
+        <Picker
+          selectedValue={selectedLang}
+          onValueChange={setSelectedLang}
+          style={{ backgroundColor: '#f0f0f0', borderRadius: 8, marginBottom: 12 }}
+        >
+          <Picker.Item label="English" value="en-US" />
+          <Picker.Item label="Hindi" value="hi-IN" />
+          <Picker.Item label="Telugu" value="te-IN" />
+          <Picker.Item label="Tamil" value="ta-IN" />
+          <Picker.Item label="Kannada" value="kn-IN" />
+          <Picker.Item label="Urdu" value="ur-IN" />
+        </Picker>
+
         <Text style={styles.label}>Description *</Text>
-        <TextInput
-          style={[styles.input, styles.textArea]}
-          placeholder="Detailed description of the civic issue"
-          value={formData.description}
-          onChangeText={(text) => setFormData(prev => ({ ...prev, description: text }))}
-          multiline
-          numberOfLines={4}
-        />
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <TextInput
+            style={[styles.input, styles.textArea, { flex: 1 }]}
+            placeholder="Detailed description of the civic issue"
+            value={formData.description}
+            onChangeText={(text) => setFormData(prev => ({ ...prev, description: text }))}
+            multiline
+            numberOfLines={4}
+          />
+          <TouchableOpacity onPress={isRecording ? stopVoiceInput : startVoiceInput} style={{ marginLeft: 10 }}>
+            <Ionicons name={isRecording ? 'mic' : 'mic-outline'} size={28} color={isRecording ? '#2E7D32' : '#666'} />
+          </TouchableOpacity>
+        </View>
 
         <Text style={styles.label}>Location</Text>
         <TextInput

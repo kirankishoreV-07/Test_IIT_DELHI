@@ -50,6 +50,7 @@ app.use('/api/complaints', require('./routes/complaints'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/image-analysis', require('./routes/imageAnalysis'));
 app.use('/cloudinary', require('./routes/cloudinary'));
+app.use('/transcribe', require('./routes/transcribe'));
 
 // Health check
 app.get('/health', (req, res) => {
