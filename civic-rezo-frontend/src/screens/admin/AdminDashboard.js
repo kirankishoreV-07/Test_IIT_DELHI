@@ -354,8 +354,7 @@ const AdminDashboard = ({ navigation }) => {
       </ScrollView>
     </View>
   );
-};
-
+}
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -614,6 +613,23 @@ const styles = StyleSheet.create({
   bottomSpacer: {
     height: EnvironmentalTheme.spacing.lg,
   },
+// merged detailsButton styles from the second declaration
+detailsButton: {
+  overflow: 'hidden',
+  ...EnvironmentalTheme.shadows.small,
+},
+  detailsGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: EnvironmentalTheme.spacing.lg,
+  },
+  detailsButtonText: {
+    ...EnvironmentalTheme.typography.body1,
+    color: '#fff',
+    fontWeight: 'bold',
+    marginLeft: EnvironmentalTheme.spacing.sm,
+  },
+  // ...existing styles...
 });
-
 export default AdminDashboard;
