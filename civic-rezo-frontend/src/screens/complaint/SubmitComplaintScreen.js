@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,8 +11,13 @@ import {
   TextInput,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { Picker } from '@react-native-picker/picker';
+import { Ionicons } from '@expo/vector-icons';
+import { Audio } from 'expo-av';
 import { API_BASE_URL } from '../../../config/supabase';
 import { supabase } from '../../../config/supabase';
+import LocationPrivacySelector from '../../components/LocationPrivacySelector';
+import LocationService from '../../services/LocationService';
 
 const SubmitComplaintScreen = ({ navigation }) => {
   const [formData, setFormData] = useState({
@@ -25,6 +30,159 @@ const SubmitComplaintScreen = ({ navigation }) => {
   const [imageValidation, setImageValidation] = useState(null);
   const [loading, setLoading] = useState(false);
   const [validatingImage, setValidatingImage] = useState(false);
+  
+  // Voice input related states
+  const [selectedLang, setSelectedLang] = useState('hi');
+  const [isRecording, setIsRecording] = useState(false);
+  const [recording, setRecording] = useState(null);
+  const [voiceError, setVoiceError] = useState(null);
+  
+  // Location-related state
+  const [locationData, setLocationData] = useState(null);
+  const [selectedPrivacyLevel, setSelectedPrivacyLevel] = useState(null);
+  const [locationPriorityScore, setLocationPriorityScore] = useState(null);
+  const [autoCapturingLocation, setAutoCapturingLocation] = useState(false);
+  const [locationCaptured, setLocationCaptured] = useState(false);
+
+  // Auto-capture location when category is selected
+  useEffect(() => {
+    if (formData.category && !locationCaptured) {
+      autoCaptureLo‌‌cation();
+    }
+  }, [formData.category]);
+
+  // Complaint categories with their types for location privacy
+  const complaintCategories = [
+    { value: 'gas_leak', label: 'Gas Leak', urgency: 'urgent' },
+    { value: 'fire_hazard', label: 'Fire Hazard', urgency: 'urgent' },
+    { value: 'electrical_danger', label: 'Electrical Danger', urgency: 'urgent' },
+    { value: 'sewage_overflow', label: 'Sewage Overflow', urgency: 'urgent' },
+    { value: 'pothole', label: 'Pothole', urgency: 'general' },
+    { value: 'broken_streetlight', label: 'Broken Streetlight', urgency: 'safety' },
+    { value: 'traffic_signal', label: 'Traffic Signal Issue', urgency: 'safety' },
+    { value: 'garbage_collection', label: 'Garbage Collection', urgency: 'general' },
+    { value: 'water_leakage', label: 'Water Leakage', urgency: 'general' },
+    { value: 'road_damage', label: 'Road Damage', urgency: 'general' },
+  ];
+
+  const getComplaintTypeFromCategory = () => {
+    const category = complaintCategories.find(cat => cat.value === formData.category);
+    return category ? category.value : 'general';
+  };
+
+  // Auto-capture location based on complaint category
+  const autoCaptureLo‌‌cation = async () => {
+    if (autoCapturingLocation || locationCaptured) return;
+    
+    setAutoCapturingLocation(true);
+    
+    try {
+      // Get recommended privacy level for the complaint type
+      const complaintType = getComplaintTypeFromCategory();
+      const recommendedPrivacy = LocationService.getRecommendedPrivacyLevel(complaintType);
+      setSelectedPrivacyLevel(recommendedPrivacy);
+      
+      // Show user-friendly message about location capture
+      const urgencyLevel = LocationService.determineUrgencyLevel(complaintType);
+      const isUrgent = urgencyLevel === 'urgent';
+      
+      Alert.alert(
+        '📍 Location Required',
+        isUrgent 
+          ? `For ${formData.category} complaints, we need your exact location to prioritize emergency response. This helps us route your complaint to the nearest response team.`
+          : `We'll capture your location to help prioritize your complaint and route it to the correct municipal office. Your privacy is protected with street-level accuracy.`,
+        [
+          { 
+            text: 'Cancel', 
+            style: 'cancel',
+            onPress: () => setAutoCapturingLocation(false)
+          },
+          { 
+            text: isUrgent ? 'Allow Exact Location' : 'Allow Location', 
+            onPress: () => proceedWithLocationCapture(recommendedPrivacy, complaintType)
+          }
+        ]
+      );
+      
+    } catch (error) {
+      console.error('Auto location capture error:', error);
+      setAutoCapturingLocation(false);
+    }
+  };
+
+  const proceedWithLocationCapture = async (privacyLevel, complaintType) => {
+    try {
+      // Capture location with recommended privacy level
+      const location = await LocationService.getLocationWithPrivacy(privacyLevel, complaintType);
+      
+      setLocationData(location);
+      setLocationCaptured(true);
+      
+      // Immediately calculate priority score
+      await calculateLocationPriority(location, complaintType);
+      
+      // Show success message with location info
+      Alert.alert(
+        '✅ Location Captured Successfully!',
+        `Accuracy: ±${location.radiusM}m (${location.precision})\n` +
+        `Privacy Level: ${location.privacyLevel}\n` +
+        `Your complaint will be prioritized based on nearby infrastructure.`,
+        [{ text: 'Continue', style: 'default' }]
+      );
+      
+    } catch (error) {
+      console.error('Location capture error:', error);
+      Alert.alert(
+        'Location Error',
+        'Unable to capture location. You can try again or submit without location (lower priority).',
+        [
+          { text: 'Retry', onPress: () => proceedWithLocationCapture(privacyLevel, complaintType) },
+          { text: 'Skip Location', style: 'destructive' }
+        ]
+      );
+    } finally {
+      setAutoCapturingLocation(false);
+    }
+  };
+
+  const calculateLocationPriority = async (location, complaintType) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/location-priority/calculate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          latitude: location.latitude,
+          longitude: location.longitude,
+          complaintType: complaintType,
+          locationMeta: {
+            privacyLevel: location.privacyLevel,
+            radiusM: location.radiusM,
+            precision: location.precision,
+            description: location.description
+          }
+        }),
+      });
+      
+      if (response.ok) {
+        const priorityResult = await response.json();
+        setLocationPriorityScore(priorityResult);
+        
+        // Show priority notification for high-priority complaints
+        if (priorityResult.priorityLevel === 'CRITICAL') {
+          Alert.alert(
+            '🚨 High Priority Complaint Detected',
+            `Your complaint has been marked as ${priorityResult.priorityLevel} priority due to proximity to critical infrastructure. It will receive immediate attention.`,
+            [{ text: 'Understood', style: 'default' }]
+          );
+        }
+      } else {
+        console.error('Priority calculation failed:', response.status);
+      }
+      
+    } catch (error) {
+      console.error('Failed to calculate location priority:', error);
+    }
+  };
 
   const pickImage = async () => {
     try {
@@ -105,42 +263,63 @@ const SubmitComplaintScreen = ({ navigation }) => {
       const cloudResult = await cloudRes.json();
       if (!cloudResult.secure_url) throw new Error('Cloudinary upload failed');
       // 2. Send imageUrl to backend for validation
-      const validateRes = await fetch(`${API_BASE_URL}/image-analysis/validate-image`, {
+      const validateRes = await fetch(`${API_BASE_URL}/api/image-analysis/validate-image`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ imageUrl: cloudResult.secure_url }),
       });
       const result = await validateRes.json();
       console.log('📋 Validation result:', result);
-      // Use a confidence threshold for validation
-      const threshold = 0.7;
-      const allowUpload = result.confidence !== undefined && result.confidence >= threshold;
-      setImageValidation({ ...result, allowUpload });
+
+      // Ensure result has expected fields, provide defaults if missing
+      const validationData = {
+        confidence: result.confidence || 0,
+        modelConfidence: result.modelConfidence || 0,
+        openaiConfidence: result.openaiConfidence || 0,
+        allowUpload: result.confidence !== undefined && result.confidence >= 0.7,
+        message: result.message || 'No validation message provided',
+        data: result.data || {},
+        raw: result.raw || null,
+      };
+      setImageValidation(validationData);
+      
       // Automatically delete invalid images from Cloudinary via backend
-      if (!allowUpload && cloudResult.public_id) {
+      if (!validationData.allowUpload && cloudResult?.public_id) {
         try {
+          console.log('🗑️ Attempting to delete invalid image from Cloudinary:', cloudResult.public_id);
           const deleteRes = await fetch(`${API_BASE_URL}/cloudinary/delete-image`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ public_id: cloudResult.public_id })
           });
-          const deleteResult = await deleteRes.json();
-          console.log('🗑️ Cloudinary delete response:', deleteResult);
+          
+          if (deleteRes.ok) {
+            const deleteResult = await deleteRes.json();
+            console.log('✅ Cloudinary delete response:', deleteResult);
+          } else {
+            console.warn('⚠️ Cloudinary delete failed with status:', deleteRes.status);
+          }
         } catch (deleteErr) {
-          console.warn('⚠️ Failed to delete image from Cloudinary:', deleteErr);
+          console.warn('⚠️ Failed to delete image from Cloudinary:', deleteErr.message);
         }
+      } else if (!validationData.allowUpload) {
+        console.log('ℹ️ Skipping Cloudinary delete - no public_id available');
       }
-      if (result.confidence !== undefined) {
-        if (allowUpload) {
+
+      // Determine display confidence
+      const displayConfidence = validationData.modelConfidence >= 0.7 ? validationData.modelConfidence : validationData.confidence;
+      
+      if (validationData.confidence !== undefined) {
+        if (validationData.allowUpload) {
           Alert.alert(
             '✅ Valid Civic Issue Detected!',
-            `Confidence Score: ${(result.confidence * 100).toFixed(1)}%`,
+            `Confidence Score: ${(displayConfidence * 100).toFixed(1)}%`,
             [{ text: 'Continue', style: 'default' }]
           );
         } else {
           Alert.alert(
             '❌ Image Validation Failed',
-            `Confidence Score: ${(result.confidence * 100).toFixed(1)}%\nThe selected image does not appear to show a valid civic issue. Please select a different image.`,
+            `Confidence Score: ${(displayConfidence * 100).toFixed(1)}%\nThe selected image does not appear to show a valid civic issue. Please select a different image.`,
             [
               { text: 'Change Image', onPress: () => setSelectedImage(null) },
               { text: 'Submit Anyway', style: 'destructive' }
@@ -172,6 +351,146 @@ const SubmitComplaintScreen = ({ navigation }) => {
     }
   };
 
+  // Voice input functions
+  const startVoiceInput = async () => {
+    setVoiceError(null);
+    
+    // Check if Web Speech API is available in the browser
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+      setVoiceError('Speech recognition not supported in this browser');
+      Alert.alert('Not Supported', 'Speech recognition is not supported in your browser/device.');
+      return;
+    }
+    
+    try {
+      const { status } = await Audio.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please allow microphone access to record your complaint.');
+        return;
+      }
+      
+      // Using Web Speech API directly
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const recognition = new SpeechRecognition();
+      
+      // Map our language codes to Web Speech API language codes
+      const languageMappings = {
+        'en': 'en-US',
+        'hi': 'hi-IN',
+        'te': 'te-IN',
+        'ta': 'ta-IN',
+        'kn': 'kn-IN',
+        'mr': 'mr-IN',
+        'bn': 'bn-IN',
+        'gu': 'gu-IN',
+        'ml': 'ml-IN',
+        'pa': 'pa-IN'
+      };
+      
+      recognition.lang = languageMappings[selectedLang] || 'en-US';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      
+      let finalTranscript = '';
+      
+      recognition.onstart = () => {
+        setIsRecording(true);
+        console.log('Speech recognition started with language:', recognition.lang);
+      };
+      
+      recognition.onresult = (event) => {
+        let interimTranscript = '';
+        
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript + ' ';
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+        
+        // Update description field with interim results
+        if (interimTranscript) {
+          setFormData(prev => ({ 
+            ...prev, 
+            description: finalTranscript + interimTranscript 
+          }));
+        }
+      };
+      
+      recognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        setVoiceError(event.error);
+        setIsRecording(false);
+        recognition.stop();
+        
+        Alert.alert(
+          'Speech Recognition Error',
+          `Error: ${event.error}. Please try again or type your description.`,
+          [{ text: 'OK' }]
+        );
+      };
+      
+      recognition.onend = () => {
+        setIsRecording(false);
+        console.log('Speech recognition ended with final transcript:', finalTranscript);
+        
+        // Set the final transcript
+        if (finalTranscript) {
+          setFormData(prev => ({ ...prev, description: finalTranscript }));
+          
+          // Log the result for debugging
+          console.log('Speech recognition result:', {
+            language: selectedLang,
+            transcript: finalTranscript
+          });
+          
+          Alert.alert(
+            'Voice Input Completed',
+            'Your speech has been converted to text successfully.',
+            [{ text: 'OK' }]
+          );
+        }
+      };
+      
+      // Start recording
+      recognition.start();
+      
+    } catch (err) {
+      console.error('Speech recognition setup error:', err);
+      setVoiceError(err.message);
+      setIsRecording(false);
+      Alert.alert('Error', 'Failed to start speech recognition: ' + err.message);
+    }
+  };
+
+  const stopVoiceInput = async () => {
+    // If we're using Web Speech API, simply trigger the onend event
+    // by stopping the recognition
+    if (window.SpeechRecognition || window.webkitSpeechRecognition) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition._recognition) {
+        SpeechRecognition._recognition.stop();
+      }
+    }
+    
+    setIsRecording(false);
+  };
+
+  // Location handling functions (legacy - for manual override)
+  const handleLocationSelect = async (location) => {
+    setLocationData(location);
+    setLocationCaptured(true);
+    
+    // Calculate location-based priority score
+    await calculateLocationPriority(location, getComplaintTypeFromCategory());
+  };
+
+  const handlePrivacyLevelChange = (privacyLevel) => {
+    setSelectedPrivacyLevel(privacyLevel);
+  };
+
   const submitComplaint = async () => {
     if (!formData.title.trim()) {
       Alert.alert('Error', 'Please enter a complaint title');
@@ -188,10 +507,22 @@ const SubmitComplaintScreen = ({ navigation }) => {
       return;
     }
 
+    if (!locationData) {
+      Alert.alert(
+        'Location Required', 
+        'Location is required for priority assessment. Would you like to capture your location now?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Get Location', onPress: () => autoCaptureLo‌‌cation() }
+        ]
+      );
+      return;
+    }
+
     if (imageValidation && !imageValidation.allowUpload) {
       Alert.alert(
         'Image Validation Failed',
-        'The selected image does not appear to show a valid civic issue. Please select a different image.',
+        `Confidence Score: ${(imageValidation.confidence * 100).toFixed(1)}%\n\nThe selected image does not appear to show a valid civic issue. You can still submit anyway for urgent issues.`,
         [
           { text: 'Change Image', onPress: () => setSelectedImage(null) },
           { text: 'Submit Anyway', style: 'destructive', onPress: () => proceedWithSubmission() }
@@ -207,32 +538,146 @@ const SubmitComplaintScreen = ({ navigation }) => {
     setLoading(true);
     
     try {
-      // Here you would implement the actual complaint submission
-      // For now, we'll just show a success message
+      // Prepare submission data
+      const submissionData = {
+        title: formData.title.trim(),
+        description: formData.description.trim(),
+        category: formData.category,
+        locationData: {
+          latitude: locationData.latitude,
+          longitude: locationData.longitude,
+          privacyLevel: locationData.privacyLevel || 'street',
+          accuracy: locationData.accuracy || locationData.radiusM || 25,
+          precision: locationData.precision || 'street',
+          description: locationData.description || 'User location',
+          address: locationData.address || `${locationData.latitude.toFixed(4)}, ${locationData.longitude.toFixed(4)}`
+        },
+        imageValidation: imageValidation || {
+          allowUpload: true,
+          confidence: 0.5,
+          success: true
+        },
+        imageUrl: selectedImage?.uri || null,
+        userId: 'demo_user',
+        userType: 'citizen'
+      };
       
-      console.log('📤 Submitting complaint with data:', {
-        ...formData,
-        imageValidation: imageValidation?.allowUpload ? 'PASSED' : 'FAILED',
-        priorityScore: imageValidation?.data?.priorityScore !== undefined ? imageValidation.data.priorityScore : 0
+      console.log('📤 Submitting complaint with comprehensive data:', submissionData);
+
+      // Submit to new comprehensive endpoint
+      const response = await fetch(`${API_BASE_URL}/api/complaints/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(submissionData),
       });
 
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      console.log('📥 Response status:', response.status);
+      console.log('📥 Response headers:', response.headers);
 
-      Alert.alert(
-        '✅ Complaint Submitted Successfully!',
-        imageValidation?.allowUpload 
-          ? `Your complaint has been submitted with priority score: ${imageValidation?.data?.priorityScore !== undefined ? (imageValidation.data.priorityScore * 100).toFixed(1) : 'N/A'}%`
-          : 'Your complaint has been submitted for review.',
-        [{ text: 'OK', onPress: () => navigation.goBack() }]
-      );
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Response error:', errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      const result = await response.json();
+      console.log('📋 Response data:', result);
+      
+      if (result.success) {
+        // Prepare new complaint object for map display
+        const newComplaint = {
+          id: result.complaint.id,
+          title: result.complaint.title,
+          description: submissionData.description,
+          category: submissionData.category,
+          status: result.complaint.status || 'pending',
+          latitude: locationData.latitude,
+          longitude: locationData.longitude,
+          location: locationData.description || locationData.address,
+          created_at: new Date().toISOString()
+        };
+        
+        Alert.alert(
+          '✅ Complaint Submitted Successfully!',
+          `Complaint ID: ${result.complaint.id}\n` +
+          `Priority: ${result.complaint.priorityLevel} (${result.complaint.priorityScore}%)\n` +
+          `Status: ${result.complaint.status}\n\n` +
+          `Expected Response: ${result.nextSteps[2] || 'Processing'}\n\n` +
+          `Reasoning: ${result.priorityAnalysis.reasoning.substring(0, 150)}...`,
+          [{ 
+            text: 'View Details', 
+            onPress: () => showComplaintDetails(result) 
+          }, {
+            text: 'View on Map', 
+            onPress: () => navigation.navigate('ComplaintMap', { newComplaint })
+          }, {
+            text: 'OK', 
+            onPress: () => navigation.goBack() 
+          }]
+        );
+      } else {
+        console.error('❌ Backend returned error:', result);
+        throw new Error(result.error || result.message || 'Submission failed');
+      }
 
     } catch (error) {
       console.error('❌ Submission error:', error);
-      Alert.alert('Error', 'Failed to submit complaint. Please try again.');
+      
+      let errorMessage = 'Please check your connection and try again.';
+      let errorTitle = 'Submission Failed';
+      
+      if (error.message.includes('Network request failed')) {
+        errorMessage = 'Cannot connect to server. Please check your internet connection.';
+        errorTitle = 'Connection Error';
+      } else if (error.message.includes('HTTP 404')) {
+        errorMessage = 'API endpoint not found. Please update the app.';
+        errorTitle = 'Service Error';
+      } else if (error.message.includes('HTTP 400')) {
+        errorMessage = 'Invalid data submitted. Please check all fields.';
+        errorTitle = 'Validation Error';
+      } else if (error.message.includes('HTTP 500')) {
+        errorMessage = 'Server error. Please try again later.';
+        errorTitle = 'Server Error';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      Alert.alert(
+        errorTitle, 
+        errorMessage,
+        [
+          { text: 'Retry', onPress: () => proceedWithSubmission() },
+          { text: 'Cancel', style: 'cancel' }
+        ]
+      );
     } finally {
       setLoading(false);
     }
+  };
+
+  const showComplaintDetails = (result) => {
+    const details = `🎯 PRIORITY ANALYSIS:\n` +
+      `Total Score: ${(result.priorityAnalysis.totalScore * 100).toFixed(1)}%\n` +
+      `Priority Level: ${result.priorityAnalysis.priorityLevel}\n\n` +
+      `📍 LOCATION ANALYSIS:\n` +
+      `Score: ${(result.priorityAnalysis.breakdown.locationScore * 100).toFixed(1)}%\n` +
+      `Facilities Nearby: ${result.priorityAnalysis.breakdown.facilitiesNearby}\n` +
+      `Privacy: ${result.location.privacyLevel} (${result.location.accuracy})\n\n` +
+      `📸 IMAGE ANALYSIS:\n` +
+      `Score: ${(result.priorityAnalysis.breakdown.imageScore * 100).toFixed(1)}%\n\n` +
+      `📋 NEXT STEPS:\n` +
+      result.nextSteps.map((step, i) => `${i + 1}. ${step}`).join('\n');
+    
+    Alert.alert('Complaint Details', details, [{ text: 'OK' }]);
+  };
+
+  const calculateTotalPriorityScore = () => {
+    const imageScore = imageValidation?.data?.priorityScore || 0;
+    const locationScore = locationPriorityScore?.priorityScore || 0;
+    
+    // Weighted combination: 40% image analysis + 60% location analysis
+    const totalScore = (imageScore * 0.4) + (locationScore * 0.6);
+    return Math.min(totalScore * 100, 100); // Convert to percentage and cap at 100%
   };
 
   const renderImageValidationStatus = () => {
@@ -250,7 +695,7 @@ const SubmitComplaintScreen = ({ navigation }) => {
         return (
           <View style={[styles.validationStatus, styles.validationSuccess]}>
             <Text style={styles.validationText}>
-              ✅ Valid civic issue detected! Priority: {imageValidation?.data?.priorityScore !== undefined ? (imageValidation.data.priorityScore * 100).toFixed(1) : 'N/A'}%
+              ✅ Valid civic issue detected! (Image: {imageValidation?.data?.priorityScore !== undefined ? (imageValidation.data.priorityScore * 100).toFixed(1) : 'N/A'}%)
             </Text>
           </View>
         );
@@ -270,10 +715,34 @@ const SubmitComplaintScreen = ({ navigation }) => {
     <ScrollView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Submit Civic Complaint</Text>
-        <Text style={styles.subtitle}>Report civic issues in your area</Text>
+        <Text style={styles.subtitle}>Report civic issues with AI-powered priority scoring</Text>
       </View>
 
       <View style={styles.form}>
+        <Text style={styles.label}>Complaint Category *</Text>
+        <View style={styles.categoryContainer}>
+          {complaintCategories.map((category) => (
+            <TouchableOpacity
+              key={category.value}
+              style={[
+                styles.categoryButton,
+                formData.category === category.value && styles.selectedCategory
+              ]}
+              onPress={() => setFormData(prev => ({ ...prev, category: category.value }))}
+            >
+              <Text style={[
+                styles.categoryText,
+                formData.category === category.value && styles.selectedCategoryText
+              ]}>
+                {category.label}
+              </Text>
+              <Text style={styles.urgencyBadge}>
+                {category.urgency === 'urgent' ? '🚨' : category.urgency === 'safety' ? '⚠️' : '📋'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
         <Text style={styles.label}>Complaint Title *</Text>
         <TextInput
           style={styles.input}
@@ -282,23 +751,125 @@ const SubmitComplaintScreen = ({ navigation }) => {
           onChangeText={(text) => setFormData(prev => ({ ...prev, title: text }))}
         />
 
+        {/* Language Picker for Voice Input */}
+        <Text style={{ fontWeight: 'bold', marginBottom: 4, marginTop: 15 }}>Select Language for Voice Input:</Text>
+        <Picker
+          selectedValue={selectedLang}
+          onValueChange={setSelectedLang}
+          style={{ backgroundColor: '#f0f0f0', borderRadius: 8, marginBottom: 12 }}
+        >
+          <Picker.Item label="Hindi" value="hi" />
+          <Picker.Item label="English" value="en" />
+          <Picker.Item label="Telugu" value="te" />
+          <Picker.Item label="Tamil" value="ta" />
+          <Picker.Item label="Kannada" value="kn" />
+          <Picker.Item label="Marathi" value="mr" />
+          <Picker.Item label="Bengali" value="bn" />
+          <Picker.Item label="Gujarati" value="gu" />
+          <Picker.Item label="Malayalam" value="ml" />
+          <Picker.Item label="Punjabi" value="pa" />
+        </Picker>
+
         <Text style={styles.label}>Description *</Text>
-        <TextInput
-          style={[styles.input, styles.textArea]}
-          placeholder="Detailed description of the civic issue"
-          value={formData.description}
-          onChangeText={(text) => setFormData(prev => ({ ...prev, description: text }))}
-          multiline
-          numberOfLines={4}
-        />
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <TextInput
+            style={[styles.input, styles.textArea, { flex: 1 }]}
+            placeholder="Detailed description of the civic issue"
+            value={formData.description}
+            onChangeText={(text) => setFormData(prev => ({ ...prev, description: text }))}
+            multiline
+            numberOfLines={4}
+          />
+          <TouchableOpacity 
+            onPress={isRecording ? stopVoiceInput : startVoiceInput} 
+            style={{ marginLeft: 10 }}
+            disabled={loading}
+          >
+            <Ionicons 
+              name={isRecording ? 'mic' : 'mic-outline'} 
+              size={28} 
+              color={isRecording ? '#2E7D32' : loading ? '#ccc' : '#666'} 
+            />
+            {isRecording && <Text style={{fontSize: 10, color: '#2E7D32', textAlign: 'center'}}>Recording</Text>}
+          </TouchableOpacity>
+        </View>
+        {voiceError && (
+          <Text style={styles.errorText}>Error: {voiceError}</Text>
+        )}
 
         <Text style={styles.label}>Location</Text>
         <TextInput
           style={styles.input}
-          placeholder="Location or address of the issue"
+          placeholder="Location or address of the issue (optional)"
           value={formData.location}
           onChangeText={(text) => setFormData(prev => ({ ...prev, location: text }))}
         />
+
+        <Text style={styles.label}>Location Priority Assessment *</Text>
+        <Text style={styles.photoHint}>
+          📍 Location is automatically captured when you select a complaint category
+        </Text>
+        
+        {autoCapturingLocation && (
+          <View style={styles.locationStatusContainer}>
+            <ActivityIndicator size="small" color="#2E7D32" />
+            <Text style={styles.locationStatusText}>🔍 Capturing your location...</Text>
+          </View>
+        )}
+        
+        {locationCaptured && locationData && (
+          <View style={styles.locationCapturedContainer}>
+            <Text style={styles.locationCapturedTitle}>✅ Location Captured Successfully</Text>
+            <Text style={styles.locationDetailText}>
+              📍 Accuracy: ±{locationData.radiusM}m ({locationData.precision})
+            </Text>
+            <Text style={styles.locationDetailText}>
+              🔒 Privacy: {locationData.description}
+            </Text>
+            <TouchableOpacity 
+              style={styles.recaptureButton}
+              onPress={() => {
+                setLocationCaptured(false);
+                setLocationData(null);
+                setLocationPriorityScore(null);
+                autoCaptureLo‌‌cation();
+              }}
+            >
+              <Text style={styles.recaptureButtonText}>📍 Recapture Location</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        
+        {!locationCaptured && !autoCapturingLocation && formData.category && (
+          <TouchableOpacity 
+            style={styles.manualLocationButton}
+            onPress={autoCaptureLo‌‌cation}
+          >
+            <Text style={styles.manualLocationButtonText}>📍 Capture Location Now</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Manual Location Selector - Hidden by default, shown only if needed */}
+        {false && formData.category && (
+          <LocationPrivacySelector
+            complaintType={getComplaintTypeFromCategory()}
+            onLocationSelect={handleLocationSelect}
+            onPrivacyLevelChange={handlePrivacyLevelChange}
+            visible={true}
+          />
+        )}
+
+        {locationPriorityScore && (
+          <View style={styles.locationScoreContainer}>
+            <Text style={styles.locationScoreTitle}>📊 Location Priority Analysis</Text>
+            <Text style={styles.locationScoreText}>
+              Priority Level: {locationPriorityScore.priorityLevel} ({(locationPriorityScore.priorityScore * 100).toFixed(1)}%)
+            </Text>
+            <Text style={styles.locationScoreReason}>
+              💡 {locationPriorityScore.reasoning}
+            </Text>
+          </View>
+        )}
 
         <Text style={styles.label}>Issue Photo *</Text>
         <Text style={styles.photoHint}>
@@ -332,14 +903,26 @@ const SubmitComplaintScreen = ({ navigation }) => {
         </View>
 
         <TouchableOpacity
-          style={[styles.submitButton, loading && styles.submitButtonDisabled]}
+          style={[
+            styles.submitButton, 
+            (loading || validatingImage || autoCapturingLocation || !formData.category || !locationData) && styles.submitButtonDisabled
+          ]}
           onPress={submitComplaint}
-          disabled={loading || validatingImage}
+          disabled={loading || validatingImage || autoCapturingLocation || !formData.category || !locationData}
         >
           {loading ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.submitButtonText}>Submit Complaint</Text>
+            <>
+              <Text style={styles.submitButtonText}>
+                {autoCapturingLocation ? 'Capturing Location...' : 'Submit Complaint'}
+              </Text>
+              {locationData && locationPriorityScore && !autoCapturingLocation && (
+                <Text style={styles.submitButtonSubtext}>
+                  Priority: {calculateTotalPriorityScore().toFixed(1)}% ({locationPriorityScore.priorityLevel})
+                </Text>
+              )}
+            </>
           )}
         </TouchableOpacity>
       </View>
@@ -471,6 +1054,130 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  submitButtonSubtext: {
+    color: '#E8F5E8',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  categoryContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 15,
+  },
+  categoryButton: {
+    backgroundColor: '#f0f0f0',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    margin: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  selectedCategory: {
+    backgroundColor: '#2E7D32',
+    borderColor: '#2E7D32',
+  },
+  categoryText: {
+    fontSize: 12,
+    color: '#333',
+    marginRight: 4,
+  },
+  selectedCategoryText: {
+    color: '#fff',
+  },
+  urgencyBadge: {
+    fontSize: 12,
+  },
+  locationScoreContainer: {
+    backgroundColor: '#e3f2fd',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#2196F3',
+  },
+  locationScoreTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#1976D2',
+    marginBottom: 4,
+  },
+  locationScoreText: {
+    fontSize: 12,
+    color: '#1976D2',
+    marginBottom: 4,
+  },
+  locationScoreReason: {
+    fontSize: 11,
+    color: '#555',
+    fontStyle: 'italic',
+  },
+  locationStatusContainer: {
+    backgroundColor: '#fff3cd',
+    padding: 12,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 10,
+    borderWidth: 1,
+    borderColor: '#ffc107',
+  },
+  locationStatusText: {
+    fontSize: 14,
+    color: '#856404',
+    marginLeft: 10,
+  },
+  locationCapturedContainer: {
+    backgroundColor: '#d4edda',
+    padding: 12,
+    borderRadius: 8,
+    marginVertical: 10,
+    borderWidth: 1,
+    borderColor: '#28a745',
+  },
+  locationCapturedTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#155724',
+    marginBottom: 4,
+  },
+  locationDetailText: {
+    fontSize: 12,
+    color: '#155724',
+    marginBottom: 2,
+  },
+  recaptureButton: {
+    backgroundColor: '#6c757d',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 15,
+    marginTop: 8,
+    alignSelf: 'flex-start',
+  },
+  recaptureButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  manualLocationButton: {
+    backgroundColor: '#007bff',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginVertical: 10,
+  },
+  manualLocationButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  errorText: {
+    color: '#F44336',
+    fontSize: 14,
+    marginTop: 5,
   },
 });
 

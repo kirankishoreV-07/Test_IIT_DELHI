@@ -23,14 +23,14 @@ const getApiBaseUrl = () => {
   if (!__DEV__) {
     // Production mode - use environment variable or fallback
     return process.env.EXPO_PUBLIC_API_URL 
-      ? `${process.env.EXPO_PUBLIC_API_URL}/api`
-      : 'https://your-production-api.com/api';
+      ? `${process.env.EXPO_PUBLIC_API_URL}`
+      : 'https://your-production-api.com';
   }
 
   // Development mode - auto-detect the best URL based on platform
   if (Platform.OS === 'web') {
     // Web platform - use localhost
-    return `http://localhost:${PORT}/api`;
+    return `http://localhost:${PORT}`;
   }
 
   // Mobile platforms (iOS/Android)
@@ -43,7 +43,7 @@ const getApiBaseUrl = () => {
   if (debuggerHost) {
     // Extract IP from debuggerHost (format: "192.168.x.x:19000")
     const host = debuggerHost.split(':')[0];
-    hostUrl = `http://${host}:${PORT}/api`;
+    hostUrl = `http://${host}:${PORT}`;
   } else {
     // Fallback IPs for common network configurations
     const fallbackIPs = [
@@ -56,7 +56,7 @@ const getApiBaseUrl = () => {
     ];
     
     // Use the first IP as primary (your current network)
-    hostUrl = `http://${fallbackIPs[0]}:${PORT}/api`;
+    hostUrl = `http://${fallbackIPs[0]}:${PORT}`;
   }
   
   return hostUrl;
@@ -72,18 +72,19 @@ console.log('🔧 Development mode:', __DEV__);
 export const apiClient = {
   // Auth endpoints
   auth: {
-    login: `${API_BASE_URL}/auth/login`,
-    signup: `${API_BASE_URL}/auth/signup`,
-    profile: `${API_BASE_URL}/auth/profile`,
+    login: `${API_BASE_URL}/api/auth/login`,
+    signup: `${API_BASE_URL}/api/auth/signup`,
+    profile: `${API_BASE_URL}/api/auth/profile`,
   },
   // Complaint endpoints
   complaints: {
-    all: `${API_BASE_URL}/complaints/all`,
-    create: `${API_BASE_URL}/complaints/create`,
+    all: `${API_BASE_URL}/api/complaints/all`,
+    create: `${API_BASE_URL}/api/complaints/create`,
+    submit: `${API_BASE_URL}/api/complaints/submit`,
   },
   // Admin endpoints
   admin: {
-    dashboard: `${API_BASE_URL}/admin/dashboard`,
+    dashboard: `${API_BASE_URL}/api/admin/dashboard`,
   },
 };
 

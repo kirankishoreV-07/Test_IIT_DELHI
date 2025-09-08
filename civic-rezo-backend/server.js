@@ -50,6 +50,9 @@ app.use('/api/complaints', require('./routes/complaints'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/image-analysis', require('./routes/imageAnalysis'));
 app.use('/cloudinary', require('./routes/cloudinary'));
+app.use('/api/location-priority', require('./routes/locationPriority'));
+app.use('/api/heat-map', require('./routes/heatMap'));
+app.use('/transcribe', require('./routes/transcription'));
 
 // Health check
 app.get('/health', (req, res) => {
@@ -85,7 +88,7 @@ app.use((err, req, res, next) => {
 });
 
 // 404 handler
-app.use('*', (req, res) => {
+app.use((req, res) => {
   res.status(404).json({
     success: false,
     message: 'Route not found'

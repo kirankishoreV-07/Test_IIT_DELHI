@@ -160,7 +160,7 @@ const CitizenDashboard = ({ navigation }) => {
 
             <TouchableOpacity 
               style={[styles.actionButton, styles.tertiaryAction]}
-              onPress={() => Alert.alert('Eco Map', 'Environmental map with hotspots')}
+              onPress={() => navigation.navigate('ComplaintMap')}
             >
               <LinearGradient
                 colors={[EnvironmentalTheme.accent.teal, EnvironmentalTheme.secondary.light]}
@@ -169,8 +169,8 @@ const CitizenDashboard = ({ navigation }) => {
                 <View style={styles.actionIconContainer}>
                   <Ionicons name="map" size={28} color="#ffffff" />
                 </View>
-                <Text style={styles.actionButtonText}>Eco Map</Text>
-                <Text style={styles.actionSubtext}>Explore trends</Text>
+                <Text style={styles.actionButtonText}>Complaint Map</Text>
+                <Text style={styles.actionSubtext}>View area status</Text>
               </LinearGradient>
             </TouchableOpacity>
 
