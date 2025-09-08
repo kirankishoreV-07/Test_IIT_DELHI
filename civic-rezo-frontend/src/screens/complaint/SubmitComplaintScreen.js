@@ -18,6 +18,7 @@ import { API_BASE_URL } from '../../../config/supabase';
 import { supabase } from '../../../config/supabase';
 import LocationPrivacySelector from '../../components/LocationPrivacySelector';
 import LocationService from '../../services/LocationService';
+import SarvamSpeechService from '../../services/SarvamSpeechService';
 
 const SubmitComplaintScreen = ({ navigation }) => {
   const [formData, setFormData] = useState({
@@ -32,10 +33,12 @@ const SubmitComplaintScreen = ({ navigation }) => {
   const [validatingImage, setValidatingImage] = useState(false);
   
   // Voice input related states
-  const [selectedLang, setSelectedLang] = useState('hi');
+  const [selectedLang, setSelectedLang] = useState('hi-IN');
   const [isRecording, setIsRecording] = useState(false);
-  const [recording, setRecording] = useState(null);
   const [voiceError, setVoiceError] = useState(null);
+  
+  // Sarvam Speech Service instance
+  const [speechService] = useState(new SarvamSpeechService());
   
   // Location-related state
   const [locationData, setLocationData] = useState(null);
@@ -50,6 +53,50 @@ const SubmitComplaintScreen = ({ navigation }) => {
       autoCaptureLo‌‌cation();
     }
   }, [formData.category]);
+
+  // Initialize speech service
+  useEffect(() => {
+    // Initialize SarvamSpeechService with callbacks
+    speechService.init({
+      onStart: () => {
+        setIsRecording(true);
+        console.log('Speech recognition started');
+      },
+      onResult: (result) => {
+        if (result && result.value && result.value.length > 0) {
+          setFormData(prev => ({ 
+            ...prev, 
+            description: result.value[0] 
+          }));
+        }
+      },
+      onTranslation: (translation) => {
+        console.log('Translation received:', translation);
+      },
+      onError: (error) => {
+        console.error('Speech recognition error:', error);
+        setVoiceError(error.error?.message || 'Error in speech recognition');
+        setIsRecording(false);
+        
+        Alert.alert(
+          'Speech Recognition Error',
+          `There was an error processing your speech. Please try again or type your description.`,
+          [{ text: 'OK' }]
+        );
+      },
+      onEnd: () => {
+        setIsRecording(false);
+        console.log('Speech recognition ended');
+      }
+    });
+    
+    return () => {
+      // Clean up speech service on component unmount
+      if (isRecording) {
+        speechService.stopSpeech();
+      }
+    };
+  }, []);
 
   // Complaint categories with their types for location privacy
   const complaintCategories = [
@@ -355,107 +402,17 @@ const SubmitComplaintScreen = ({ navigation }) => {
   const startVoiceInput = async () => {
     setVoiceError(null);
     
-    // Check if Web Speech API is available in the browser
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      setVoiceError('Speech recognition not supported in this browser');
-      Alert.alert('Not Supported', 'Speech recognition is not supported in your browser/device.');
-      return;
-    }
-    
     try {
+      // Request audio recording permissions
       const { status } = await Audio.requestPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert('Permission Required', 'Please allow microphone access to record your complaint.');
         return;
       }
       
-      // Using Web Speech API directly
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      const recognition = new SpeechRecognition();
-      
-      // Map our language codes to Web Speech API language codes
-      const languageMappings = {
-        'en': 'en-US',
-        'hi': 'hi-IN',
-        'te': 'te-IN',
-        'ta': 'ta-IN',
-        'kn': 'kn-IN',
-        'mr': 'mr-IN',
-        'bn': 'bn-IN',
-        'gu': 'gu-IN',
-        'ml': 'ml-IN',
-        'pa': 'pa-IN'
-      };
-      
-      recognition.lang = languageMappings[selectedLang] || 'en-US';
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      
-      let finalTranscript = '';
-      
-      recognition.onstart = () => {
-        setIsRecording(true);
-        console.log('Speech recognition started with language:', recognition.lang);
-      };
-      
-      recognition.onresult = (event) => {
-        let interimTranscript = '';
-        
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript;
-          if (event.results[i].isFinal) {
-            finalTranscript += transcript + ' ';
-          } else {
-            interimTranscript += transcript;
-          }
-        }
-        
-        // Update description field with interim results
-        if (interimTranscript) {
-          setFormData(prev => ({ 
-            ...prev, 
-            description: finalTranscript + interimTranscript 
-          }));
-        }
-      };
-      
-      recognition.onerror = (event) => {
-        console.error('Speech recognition error:', event.error);
-        setVoiceError(event.error);
-        setIsRecording(false);
-        recognition.stop();
-        
-        Alert.alert(
-          'Speech Recognition Error',
-          `Error: ${event.error}. Please try again or type your description.`,
-          [{ text: 'OK' }]
-        );
-      };
-      
-      recognition.onend = () => {
-        setIsRecording(false);
-        console.log('Speech recognition ended with final transcript:', finalTranscript);
-        
-        // Set the final transcript
-        if (finalTranscript) {
-          setFormData(prev => ({ ...prev, description: finalTranscript }));
-          
-          // Log the result for debugging
-          console.log('Speech recognition result:', {
-            language: selectedLang,
-            transcript: finalTranscript
-          });
-          
-          Alert.alert(
-            'Voice Input Completed',
-            'Your speech has been converted to text successfully.',
-            [{ text: 'OK' }]
-          );
-        }
-      };
-      
-      // Start recording
-      recognition.start();
+      // Start recording with Sarvam Speech Service using the selected language
+      console.log(`Starting speech recognition with language: ${selectedLang}`);
+      await speechService.startSpeech(selectedLang);
       
     } catch (err) {
       console.error('Speech recognition setup error:', err);
@@ -466,16 +423,14 @@ const SubmitComplaintScreen = ({ navigation }) => {
   };
 
   const stopVoiceInput = async () => {
-    // If we're using Web Speech API, simply trigger the onend event
-    // by stopping the recognition
-    if (window.SpeechRecognition || window.webkitSpeechRecognition) {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (SpeechRecognition._recognition) {
-        SpeechRecognition._recognition.stop();
-      }
+    try {
+      // Stop the speech recording
+      await speechService.processAndStopSpeech(selectedLang);
+      setIsRecording(false);
+    } catch (error) {
+      console.error('Error stopping speech:', error);
+      setIsRecording(false);
     }
-    
-    setIsRecording(false);
   };
 
   // Location handling functions (legacy - for manual override)
@@ -758,16 +713,16 @@ const SubmitComplaintScreen = ({ navigation }) => {
           onValueChange={setSelectedLang}
           style={{ backgroundColor: '#f0f0f0', borderRadius: 8, marginBottom: 12 }}
         >
-          <Picker.Item label="Hindi" value="hi" />
-          <Picker.Item label="English" value="en" />
-          <Picker.Item label="Telugu" value="te" />
-          <Picker.Item label="Tamil" value="ta" />
-          <Picker.Item label="Kannada" value="kn" />
-          <Picker.Item label="Marathi" value="mr" />
-          <Picker.Item label="Bengali" value="bn" />
-          <Picker.Item label="Gujarati" value="gu" />
-          <Picker.Item label="Malayalam" value="ml" />
-          <Picker.Item label="Punjabi" value="pa" />
+          <Picker.Item label="Hindi" value="hi-IN" />
+          <Picker.Item label="English" value="en-US" />
+          <Picker.Item label="Telugu" value="te-IN" />
+          <Picker.Item label="Tamil" value="ta-IN" />
+          <Picker.Item label="Kannada" value="kn-IN" />
+          <Picker.Item label="Marathi" value="mr-IN" />
+          <Picker.Item label="Bengali" value="bn-IN" />
+          <Picker.Item label="Gujarati" value="gu-IN" />
+          <Picker.Item label="Malayalam" value="ml-IN" />
+          <Picker.Item label="Punjabi" value="pa-IN" />
         </Picker>
 
         <Text style={styles.label}>Description *</Text>
