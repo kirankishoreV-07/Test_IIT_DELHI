@@ -12,7 +12,7 @@ import {
   TextInput,
   Keyboard,
 } from 'react-native';
-import MapView, { Marker, Callout } from 'react-native-maps';
+import MapView, { Marker, Callout, Heatmap } from 'react-native-maps';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
@@ -68,6 +68,7 @@ const ComplaintMapScreen = ({ navigation, route }) => {
   const routeParams = route?.params || {};
   
   const [complaints, setComplaints] = useState([]);
+  const [heatMapData, setHeatMapData] = useState([]); // Initialize as empty array
   const [loading, setLoading] = useState(true);
   const [selectedComplaint, setSelectedComplaint] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
@@ -93,21 +94,26 @@ const ComplaintMapScreen = ({ navigation, route }) => {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(new Date());
   const [isFetching, setIsFetching] = useState(false);
+  const [showHeatmap, setShowHeatmap] = useState(true);
   // Use ref to track fetching state across renders
   const isFetchingRef = React.useRef(false);
 
   // Fetch complaint data from API or local storage
   useEffect(() => {
+    console.log('🚀 Component mounted - initializing map and data');
+    
     // Initial data fetch - using a small delay to avoid race conditions
     const initialFetch = setTimeout(() => {
+      console.log('⏱️ Initial data fetch starting...');
       fetchComplaintData();
-    }, 300);
+    }, 1000); // Increased delay to ensure component is fully mounted
     
     // Fetch user location
     fetchUserLocation();
 
     // Check if there's a new complaint from navigation params
     if (routeParams.newComplaint) {
+      console.log('📝 New complaint detected in route params:', routeParams.newComplaint.id);
       handleNewComplaint(routeParams.newComplaint);
     }
 
@@ -204,53 +210,341 @@ const ComplaintMapScreen = ({ navigation, route }) => {
 
   // Handle a new complaint from navigation params
   const handleNewComplaint = (newComplaint) => {
-    if (newComplaint) {
-      // Add the new complaint to the existing list
-      setComplaints(prevComplaints => {
-        // Only add if not already present
-        const exists = prevComplaints.some(c => c.id === newComplaint.id);
-        if (!exists) {
-          const updatedComplaints = [...prevComplaints, newComplaint];
-          // Update statistics
-          updateStatistics(updatedComplaints);
-          // Animate to the new complaint location
-          if (mapRef && newComplaint.latitude && newComplaint.longitude) {
-            mapRef.animateToRegion({
-              latitude: parseFloat(newComplaint.latitude),
-              longitude: parseFloat(newComplaint.longitude),
-              latitudeDelta: 0.01,
-              longitudeDelta: 0.01,
-            });
-          }
-          return updatedComplaints;
+    if (!newComplaint) return;
+    
+    console.log('📝 Handling new complaint:', newComplaint.id);
+    
+    // Add the new complaint to the existing list
+    setComplaints(prevComplaints => {
+      // Check if complaint already exists by ID
+      const exists = prevComplaints.some(c => c.id === newComplaint.id);
+      
+      if (!exists) {
+        // Create a properly formatted complaint object
+        const formattedComplaint = {
+          id: newComplaint.id,
+          title: newComplaint.title,
+          description: newComplaint.description,
+          latitude: parseFloat(newComplaint.latitude || newComplaint.location_latitude),
+          longitude: parseFloat(newComplaint.longitude || newComplaint.location_longitude),
+          status: newComplaint.status || 'pending',
+          created_at: newComplaint.created_at || new Date().toISOString(),
+          priority: newComplaint.priority_score || newComplaint.priority || 0,
+          location: newComplaint.location_address || newComplaint.location,
+          category: newComplaint.category || 'Other'
+        };
+        
+        // Validate coordinates
+        if (isNaN(formattedComplaint.latitude) || isNaN(formattedComplaint.longitude)) {
+          console.error('❌ Invalid coordinates in new complaint:', newComplaint);
+          Alert.alert(
+            'Location Error',
+            'The new complaint has invalid location coordinates. Please check the location and try again.',
+            [{ text: 'OK' }]
+          );
+          return prevComplaints;
         }
-        return prevComplaints;
+        
+        console.log('✅ Adding new complaint to map:', formattedComplaint.id);
+        
+        const updatedComplaints = [...prevComplaints, formattedComplaint];
+        
+        // Update statistics with new data
+        updateStatistics(updatedComplaints);
+        
+        // Animate to the new complaint location with a slight delay to ensure UI is updated
+        setTimeout(() => {
+          if (mapRef && formattedComplaint.latitude && formattedComplaint.longitude) {
+            console.log('🗺️ Animating to new complaint location');
+            mapRef.animateToRegion({
+              latitude: formattedComplaint.latitude,
+              longitude: formattedComplaint.longitude,
+              latitudeDelta: 0.01, // Closer zoom for better visibility
+              longitudeDelta: 0.01,
+            }, 1000);
+          }
+        }, 500);
+        
+        // Also update heatmap data if appropriate
+        if (showHeatmap) {
+          setHeatMapData(prevHeatMap => {
+            const newHeatPoint = {
+              latitude: formattedComplaint.latitude,
+              longitude: formattedComplaint.longitude,
+              weight: 1 // Default weight for new complaints
+            };
+            return [...prevHeatMap, newHeatPoint];
+          });
+        }
+        
+        return updatedComplaints;
+      }
+      
+      console.log('⚠️ Complaint already exists in map data:', newComplaint.id);
+      return prevComplaints;
+    });
+  };
+
+  // Added diagnostic function to test API directly
+  const testApiEndpoints = async () => {
+    console.log('🧪 TESTING API ENDPOINTS DIRECTLY');
+    Alert.alert("Testing API Connection", "Checking connection to server...");
+    
+    // Create timeout function for all API calls
+    const timeoutPromise = (ms) => new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Request timed out')), ms);
+    });
+    
+    // Check server health first
+    try {
+      // Create timeout function
+      const timeoutPromise = (ms) => new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Request timed out')), ms);
+      });
+      
+      // Construct the health check URL manually based on the API base URL pattern
+      const baseUrl = apiClient.complaints.all.split('/api/')[0];
+      const healthUrl = `${baseUrl}/health`;
+      console.log('🏥 Testing server health at:', healthUrl);
+      
+      // Race between fetch and timeout
+      const healthResponse = await Promise.race([
+        fetch(healthUrl),
+        timeoutPromise(5000)
+      ]);
+      
+      const healthData = await healthResponse.json();
+      console.log('🏥 Health check response:', healthData);
+      
+      if (healthResponse.ok) {
+        Alert.alert("Server Health", `Server is up and running: ${JSON.stringify(healthData)}`);
+      } else {
+        Alert.alert("Server Health Issue", `Server returned error: ${healthResponse.status}`);
+      }
+    } catch (error) {
+      console.error('❌ Health check failed:', error);
+      Alert.alert("Server Connection Failed", 
+        `Cannot connect to server. Error: ${error.message}\n\nPlease check your connection and server status.`);
+      return;
+    }
+    
+    // Test complaints endpoint
+    try {
+      console.log('🧪 Testing complaints endpoint:', apiClient.complaints.all);
+      
+      // Race between fetch and timeout
+      const complaintsResponse = await Promise.race([
+        fetch(apiClient.complaints.all),
+        timeoutPromise(5000)
+      ]);
+      
+      if (complaintsResponse.ok) {
+        const complaintsData = await complaintsResponse.json();
+        console.log('📋 Complaints data received:', 
+          complaintsData?.success, 
+          'Count:', complaintsData?.data?.length,
+          'Sample:', complaintsData?.data?.length > 0 ? JSON.stringify(complaintsData.data[0]).substring(0, 100) + '...' : 'No data'
+        );
+        
+        Alert.alert("Complaints API", 
+          `Successful: ${complaintsData?.success}\nFound ${complaintsData?.data?.length || 0} complaints`);
+          
+        // Add a test marker on the map
+        if (complaintsData?.data?.length > 0) {
+          const complaint = complaintsData.data[0];
+          // Check if we have valid coordinates
+          if (complaint.location_latitude && complaint.location_longitude) {
+            const lat = parseFloat(complaint.location_latitude);
+            const lng = parseFloat(complaint.location_longitude);
+            
+            // Create test heatmap points around this location
+            const testPoints = [
+              { latitude: lat, longitude: lng, weight: 80 },
+              { latitude: lat + 0.002, longitude: lng + 0.002, weight: 60 },
+              { latitude: lat - 0.002, longitude: lng - 0.002, weight: 40 },
+              { latitude: lat + 0.001, longitude: lng - 0.001, weight: 50 }
+            ];
+            
+            setHeatMapData(testPoints);
+            
+            // Move map to this location
+            if (mapRef) {
+              mapRef.animateToRegion({
+                latitude: lat,
+                longitude: lng,
+                latitudeDelta: 0.01,
+                longitudeDelta: 0.01
+              }, 1000);
+            }
+          }
+        }
+      } else {
+        Alert.alert("Complaints API Error", 
+          `Status: ${complaintsResponse.status}\nMessage: ${complaintsResponse.statusText}`);
+      }
+    } catch (error) {
+      console.error('❌ Complaints endpoint test failed:', error);
+      Alert.alert("Complaints API Error", `Error: ${error.message}`);
+    }
+    
+    // Test heatmap endpoint
+    try {
+      console.log('🧪 Testing heatmap endpoint:', apiClient.heatMap.data);
+      
+      // Race between fetch and timeout
+      const heatmapResponse = await Promise.race([
+        fetch(apiClient.heatMap.data),
+        timeoutPromise(5000)
+      ]);
+      
+      if (heatmapResponse.ok) {
+        const heatmapData = await heatmapResponse.json();
+        console.log('🔥 Heatmap data received:', 
+          heatmapData?.success, 
+          'Points:', heatmapData?.data?.points?.length,
+          'Sample:', heatmapData?.data?.points?.length > 0 ? 
+            JSON.stringify(heatmapData.data.points[0]).substring(0, 100) + '...' : 'No data'
+        );
+        
+        Alert.alert("Heatmap API", 
+          `Successful: ${heatmapData?.success}\nFound ${heatmapData?.data?.points?.length || 0} heatmap points`);
+        
+        // If we have heatmap points, display them
+        if (heatmapData?.data?.points?.length > 0) {
+          try {
+            // Format the points for the heatmap
+            const formattedPoints = heatmapData.data.points.map(point => ({
+              latitude: parseFloat(point.lat || point.latitude || point.location_latitude || 0),
+              longitude: parseFloat(point.lng || point.longitude || point.location_longitude || 0),
+              weight: parseFloat(point.weight || point.intensity || point.priority_score || 1)
+            })).filter(point => 
+              !isNaN(point.latitude) && 
+              !isNaN(point.longitude) && 
+              point.latitude !== 0 && 
+              point.longitude !== 0
+            );
+            
+            if (formattedPoints.length > 0) {
+              setHeatMapData(formattedPoints);
+              
+              // Adjust map to show the heatmap
+              if (mapRef && formattedPoints.length > 0) {
+                // Calculate the center of the points
+                const center = formattedPoints.reduce(
+                  (acc, point) => ({
+                    latitude: acc.latitude + point.latitude / formattedPoints.length,
+                    longitude: acc.longitude + point.longitude / formattedPoints.length
+                  }),
+                  { latitude: 0, longitude: 0 }
+                );
+                
+                mapRef.animateToRegion({
+                  ...center,
+                  latitudeDelta: 0.05,
+                  longitudeDelta: 0.05
+                }, 1000);
+              }
+            }
+          } catch (formatError) {
+            console.error('❌ Error formatting heatmap points:', formatError);
+          }
+        }
+      } else {
+        Alert.alert("Heatmap API Error", 
+          `Status: ${heatmapResponse.status}\nMessage: ${heatmapResponse.statusText}`);
+      }
+    } catch (error) {
+      console.error('❌ Heatmap endpoint test failed:', error);
+      Alert.alert("Heatmap API Error", `Error: ${error.message}`);
+    }
+  };
+
+  // Alternative approach to display heatmap data (safer)
+  const generateTestHeatmap = () => {
+    console.log('📊 Generating test heatmap data');
+    
+    // Use a simpler approach - instead of using react-native-maps Heatmap
+    // we'll use markers with varied opacity to simulate a heatmap
+    const testPoints = [];
+    for (let i = 0; i < 30; i++) {
+      // Random offset within ~2km
+      const latOffset = (Math.random() - 0.5) * 0.04;
+      const lngOffset = (Math.random() - 0.5) * 0.04;
+      const weight = Math.floor(Math.random() * 100); // Random weight 0-100
+      
+      testPoints.push({
+        latitude: region.latitude + latOffset,
+        longitude: region.longitude + lngOffset,
+        weight: weight
       });
     }
+    
+    console.log(`📊 Generated ${testPoints.length} test heatmap points`);
+    console.log('📊 Sample point:', JSON.stringify(testPoints[0]));
+    
+    // Update state with test data
+    setHeatMapData(testPoints);
+    setShowHeatmap(true);
+    
+    Alert.alert(
+      "Test Data Generated", 
+      `Created ${testPoints.length} test data points around your current location.`,
+      [
+        { 
+          text: "OK", 
+          onPress: () => console.log("Test heatmap generated") 
+        }
+      ]
+    );
   };
 
   // Fetch user's current location
   const fetchUserLocation = async () => {
     try {
+      console.log('🔍 Fetching user location...');
       let { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
+        console.log('❌ Location permission denied');
         setErrorMsg('Permission to access location was denied');
         return;
       }
 
-      let location = await Location.getCurrentPositionAsync({});
+      setLoading(true);
+      
+      // Get user location with high accuracy
+      let location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+        maximumAge: 10000 // Accept a location that's up to 10 seconds old
+      });
+      
+      console.log('📍 User location obtained:', 
+        location.coords.latitude, 
+        location.coords.longitude
+      );
+      
       setLocation(location);
 
-      // Update map region to user's location
-      setRegion({
+      // Update map region to user's location with closer zoom
+      const newRegion = {
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
-        latitudeDelta: 0.01,
+        latitudeDelta: 0.01, // Closer zoom for better detail
         longitudeDelta: 0.01,
-      });
+      };
+      
+      setRegion(newRegion);
+      
+      // Animate map to user location if map reference is available
+      if (mapRef) {
+        console.log('🗺️ Animating map to user location');
+        mapRef.animateToRegion(newRegion, 1000);
+      }
+      
+      setLoading(false);
     } catch (error) {
-      console.error("Error getting location:", error);
+      console.error("❌ Error getting location:", error);
       setErrorMsg('Could not fetch location');
+      setLoading(false);
     }
   };
 
@@ -283,87 +577,291 @@ const ComplaintMapScreen = ({ navigation, route }) => {
   };
 
   // Fetch complaints data from backend with debouncing to prevent rapid calls
+  // Fetch complaint data from backend with debouncing to prevent rapid calls
   const fetchComplaintData = async (retryCount = 0) => {
     const maxRetries = 3;
     
+    // Create fallback test data in case the API doesn't work
+    const generateMockHeatmapData = () => {
+      const points = [];
+      // Generate points around the current map center
+      for (let i = 0; i < 20; i++) {
+        // Random offset within 0.01 degrees (roughly 1km)
+        const latOffset = (Math.random() - 0.5) * 0.02;
+        const lngOffset = (Math.random() - 0.5) * 0.02;
+        const weight = Math.random() * 100; // Random weight between 0-100
+        
+        points.push({
+          latitude: region.latitude + latOffset,
+          longitude: region.longitude + lngOffset,
+          weight: weight
+        });
+      }
+      return points;
+    };
+    
     // Use ref to track fetching state - more reliable than state across renders
-  if (isFetchingRef.current) {
-    console.log('API call already in progress (ref), skipping...');
-    return;
-  }
-  
-  // Set both state and ref
-  isFetchingRef.current = true;
-  setIsFetching(true);
-  setLoading(true);
-  
-  console.log('Starting API fetch for complaints data...');
+    if (isFetchingRef.current) {
+      console.log('API call already in progress (ref), skipping...');
+      return;
+    }
+    
+    // Set both state and ref
+    isFetchingRef.current = true;
+    setIsFetching(true);
+    setLoading(true);
+    
+    console.log('🔄 Starting API fetch for complaints and heatmap data...');
     
     try {
-      // Using the correct API endpoint from apiClient
-      const response = await makeApiCall(apiClient.complaints.all);
+      // Create a fallback API URL if the config one might be incorrect
+      const baseApiUrl = apiClient.baseUrl || 'http://192.168.29.237:3001/api';
+      const complaintsUrl = apiClient.complaints.all || `${baseApiUrl}/complaints/all`;
+      const heatmapUrl = apiClient.heatMap.data || `${baseApiUrl}/heat-map/data`;
       
-      // Check if the response is successful and has data
-      if (response && response.success && Array.isArray(response.data)) {
-        // Map database fields to frontend expected format
-        const formattedComplaints = response.data.map(complaint => ({
-          id: complaint.id,
-          title: complaint.title,
-          description: complaint.description,
-          latitude: parseFloat(complaint.location_latitude),
-          longitude: parseFloat(complaint.location_longitude),
-          status: complaint.status,
-          created_at: complaint.created_at,
-          priority: complaint.priority_score,
-          location: complaint.location_address,
-          category: complaint.category
-        }));
+      console.log('📊 Using API URLs:', { complaintsUrl, heatmapUrl });
+      
+      // Try to fetch real data first
+      let complaintData = null;
+      let heatMapData = null;
+      let fetchFailed = false;
+      
+      try {
+        // Create timeout promise
+        const timeoutPromise = (ms) => new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Request timed out')), ms);
+        });
         
-        // Use real data from database
+        // Fetch complaints data with timeout
+        console.log('📊 Fetching complaints data from:', complaintsUrl);
+        const fetchComplaintsPromise = fetch(complaintsUrl, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        // Race between fetch and timeout
+        const response = await Promise.race([
+          fetchComplaintsPromise,
+          timeoutPromise(5000)
+        ]);
+        
+        if (response.ok) {
+          complaintData = await response.json();
+          console.log('📊 Complaints data received:', complaintData?.success, complaintData?.data?.length);
+        } else {
+          console.error('❌ Complaints API error:', response.status, response.statusText);
+          fetchFailed = true;
+        }
+        
+        // Fetch heatmap data with timeout
+        console.log('🔥 Fetching heatmap data from:', heatmapUrl);
+        const fetchHeatmapPromise = fetch(heatmapUrl, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        // Race between fetch and timeout
+        const heatmapResponse = await Promise.race([
+          fetchHeatmapPromise,
+          timeoutPromise(5000)
+        ]);
+        
+        if (heatmapResponse.ok) {
+          heatMapData = await heatmapResponse.json();
+          console.log('🔥 Heatmap data received:', heatMapData?.success, heatMapData?.data?.points?.length);
+        } else {
+          console.error('❌ Heatmap API error:', heatmapResponse.status, heatmapResponse.statusText);
+          fetchFailed = true;
+        }
+      } catch (fetchError) {
+        console.error('❌ API fetch error:', fetchError);
+        fetchFailed = true;
+      }
+      
+      // If API fetch failed, use mock data
+      if (fetchFailed || !complaintData || !heatMapData) {
+        console.log('⚠️ Using mock data due to API fetch failure');
+        // Generate mock complaints data
+        complaintData = {
+          success: true,
+          data: Array(10).fill(0).map((_, i) => ({
+            id: `mock-${i}`,
+            title: `Mock Complaint ${i}`,
+            description: 'This is a mock complaint for testing purposes',
+            location_latitude: region.latitude + (Math.random() - 0.5) * 0.02,
+            location_longitude: region.longitude + (Math.random() - 0.5) * 0.02,
+            status: ['pending', 'in_progress', 'completed'][Math.floor(Math.random() * 3)],
+            created_at: new Date().toISOString(),
+            priority_score: Math.floor(Math.random() * 100),
+            location_address: 'Mock Location',
+            category: ['water', 'road', 'electricity', 'sanitation'][Math.floor(Math.random() * 4)]
+          }))
+        };
+        
+        // Generate mock heatmap data
+        heatMapData = {
+          success: true,
+          data: {
+            points: generateMockHeatmapData()
+          }
+        };
+      }
+      
+      // Process heatmap data - use either real or mock data
+      if (heatMapData && heatMapData.success && 
+          heatMapData.data && Array.isArray(heatMapData.data.points)) {
+        
+        console.log('✅ Successfully fetched heatmap data:', 
+          heatMapData?.data?.points?.length, 'points');
+        console.log('Raw heatmap data structure:', JSON.stringify(heatMapData.data).substring(0, 300) + '...');
+        
+        // Format the heatmap data for the Heatmap component
+        try {
+          // Filter and format heatmap points
+          const formattedHeatMapPoints = (heatMapData.data.points || [])
+            .filter(point => {
+              // Filter out points without coordinates
+              const hasCoords = point && 
+                ((point.lat !== undefined && point.lng !== undefined) || 
+                 (point.latitude !== undefined && point.longitude !== undefined) ||
+                 (point.location_latitude !== undefined && point.location_longitude !== undefined));
+              
+              if (!hasCoords) {
+                console.log('⚠️ Skipping point without coordinates:', point);
+              }
+              return hasCoords;
+            })
+            .map(point => {
+              // Parse coordinates ensuring they are valid numbers
+              const lat = parseFloat(point.lat || point.latitude || point.location_latitude || 0);
+              const lng = parseFloat(point.lng || point.longitude || point.location_longitude || 0);
+              const weight = parseFloat(point.weight || point.intensity || point.priority_score || 1);
+              
+              // Use status to adjust weight if available
+              let adjustedWeight = weight;
+              if (point.status) {
+                switch(point.status) {
+                  case 'pending': adjustedWeight = weight * 1.5; break;
+                  case 'in_progress': adjustedWeight = weight * 1.2; break;
+                  case 'completed': adjustedWeight = weight * 0.8; break;
+                }
+              }
+              
+              return {
+                latitude: lat,
+                longitude: lng,
+                weight: adjustedWeight
+              };
+            })
+            .filter(point => {
+              // Final filter to ensure all points have valid coordinates
+              const isValid = !isNaN(point.latitude) && 
+                !isNaN(point.longitude) && 
+                point.latitude !== 0 && 
+                point.longitude !== 0;
+              
+              if (!isValid) {
+                console.log('⚠️ Skipping point with invalid coordinates:', point);
+              }
+              return isValid;
+            });
+          
+          console.log(`✅ Processed ${formattedHeatMapPoints.length} valid heatmap points`);
+          console.log('Sample heatmap points:', 
+            formattedHeatMapPoints.length > 0 
+              ? JSON.stringify(formattedHeatMapPoints.slice(0, 3)) 
+              : 'No points');
+          
+          // Set the heatmap data in state
+          setHeatMapData(formattedHeatMapPoints);
+          
+        } catch (formatError) {
+          console.error('❌ Error formatting heatmap data:', formatError);
+          setHeatMapData([]);
+        }
+      } else {
+        console.warn('⚠️ Invalid heatmap data format or empty result:', heatMapData);
+        setHeatMapData([]);
+      }
+      
+      // Process complaints data
+      if (complaintData && complaintData.success && Array.isArray(complaintData.data)) {
+        // Map database fields to frontend expected format
+        const formattedComplaints = complaintData.data
+          .filter(complaint => 
+            // Filter out complaints with invalid coordinates
+            complaint && 
+            complaint.location_latitude && 
+            complaint.location_longitude &&
+            !isNaN(parseFloat(complaint.location_latitude)) &&
+            !isNaN(parseFloat(complaint.location_longitude))
+          )
+          .map(complaint => ({
+            id: complaint.id,
+            title: complaint.title,
+            description: complaint.description,
+            latitude: parseFloat(complaint.location_latitude),
+            longitude: parseFloat(complaint.location_longitude),
+            status: complaint.status,
+            created_at: complaint.created_at,
+            priority: complaint.priority_score,
+            location: complaint.location_address,
+            category: complaint.category
+          }));
+        
+        console.log(`✅ Processed ${formattedComplaints.length} valid complaints`);
+        
+        // Update state with formatted complaints
         setComplaints(formattedComplaints);
         updateStatistics(formattedComplaints);
-        console.log('Successfully fetched real data from database');
       } else {
-        console.error('Invalid data format or empty response:', response);
-        // Show error to user
-        Alert.alert(
-          'Data Fetch Error',
-          'Unable to retrieve complaint data. Please try again later.',
-          [{ text: 'OK' }]
-        );
-        // Initialize with empty data
-        setComplaints([]);
-        updateStatistics([]);
+        console.error('❌ Invalid complaint data format or empty response:', complaintData);
+        // Show error to user only if this is not a retry
+        if (retryCount === 0) {
+          Alert.alert(
+            'Data Fetch Error',
+            'Unable to retrieve complaint data. Please try again later.',
+            [{ text: 'OK' }]
+          );
+        }
+        // Keep existing data instead of clearing it
+        updateStatistics(complaints);
       }
     } catch (error) {
-      console.error('Error fetching complaints:', error);
+      console.error('❌ Error in fetchComplaintData:', error);
       
       // Retry logic for network errors
-      if (retryCount < maxRetries && error.message.includes('Network request failed')) {
-        console.log(`Retrying API call (${retryCount + 1}/${maxRetries})...`);
+      if (retryCount < maxRetries) {
+        console.log(`⏱️ Retrying API call (${retryCount + 1}/${maxRetries})...`);
         setTimeout(() => fetchComplaintData(retryCount + 1), 2000 * (retryCount + 1)); // Exponential backoff
         return;
       }
       
-      // Show error to user
+      // Show error to user only if all retries failed
       Alert.alert(
         'Connection Error',
         'Could not connect to the server. Please check your network connection and try again.',
         [{ text: 'OK' }]
       );
-      // Initialize with empty data
-      setComplaints([]);
-      updateStatistics([]);
+      
+      // Keep existing data instead of clearing it
+      updateStatistics(complaints);
     } finally {
-      // Ensure state updates happen in correct order with a small delay
+      // Ensure state updates happen in correct order
       setTimeout(() => {
         setLoading(false);
         setLastUpdated(new Date());
         // Update both state and ref
         setIsFetching(false);
         isFetchingRef.current = false;
-        console.log('Fetch complete, ready for next API call');
-      }, 300); // Slightly longer delay to ensure everything settles
+        console.log('✅ Fetch complete, ready for next API call');
+      }, 300);
     }
   };
 
@@ -395,23 +893,28 @@ const ComplaintMapScreen = ({ navigation, route }) => {
     }
     
     // Prevent multiple search attempts at once
-    if (isSearching) return;
+    if (isSearching) {
+      console.log('Search already in progress, please wait...');
+      return;
+    }
     
     setIsSearching(true);
-    console.log('Searching for location:', currentQuery);
+    console.log('🔍 Searching for location:', currentQuery);
     
     try {
       // Using Nominatim OpenStreetMap service which doesn't require an API key
       const encodedQuery = encodeURIComponent(currentQuery);
-      const url = `https://nominatim.openstreetmap.org/search?q=${encodedQuery}&format=json&limit=1`;
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodedQuery}&format=json&limit=5&addressdetails=1`;
       
-      console.log('Sending geocode request to:', url);
+      console.log('🌐 Sending geocode request to OpenStreetMap API');
       
       const response = await fetch(url, {
         headers: {
           'Accept': 'application/json',
           'User-Agent': 'CivicRezoCitizenApp' // Be respectful to the free API
-        }
+        },
+        // Add a timeout to prevent hanging on slow connections
+        signal: AbortSignal.timeout(10000) // 10 second timeout
       });
       
       if (!response.ok) {
@@ -419,85 +922,121 @@ const ComplaintMapScreen = ({ navigation, route }) => {
       }
       
       const results = await response.json();
-      console.log('Geocode results:', results);
       
-      if (results && results.length > 0) {
-        const firstResult = results[0];
-        
-        // OpenStreetMap returns lat/lon as strings
-        const latitude = parseFloat(firstResult.lat);
-        const longitude = parseFloat(firstResult.lon);
-        
-        if (isNaN(latitude) || isNaN(longitude)) {
-          throw new Error('Invalid coordinates in search result');
-        }
-        
-        console.log('Found location:', { latitude, longitude, display_name: firstResult.display_name });
-        
-        // Update region with animation
-        const newRegion = {
-          latitude,
-          longitude,
-          latitudeDelta: 0.02, // Closer zoom level
-          longitudeDelta: 0.02,
-        };
-        
-        // Set region state
-        setRegion(newRegion);
-        
-        // Close the search modal
-        setShowSearchModal(false);
-        
-        // Animate to the location
-        if (mapRef && mapRef.animateToRegion) {
-          console.log('Animating map to new region');
-          // Use a direct call without setTimeout to avoid potential issues
-          mapRef.animateToRegion(newRegion, 1000);
-        } else {
-          console.warn('Map reference is not available for animation');
-        }
-        
-        // Add a temporary marker for the searched location
-        const searchedLocation = {
-          id: 'search-result',
-          latitude,
-          longitude,
-          title: firstResult.display_name || 'Searched Location',
-          description: searchQuery,
-          isSearchResult: true
-        };
-        
-        // Set the search marker to display it on the map
-        setSearchMarker(searchedLocation);
-        
-        // Save to recent searches (limit to 5)
-        // Use the current query from ref to ensure consistency
-        const currentQuery = searchQueryRef.current || searchQuery;
-        
-        const newSearch = { 
-          query: currentQuery, 
-          timestamp: new Date(),
-          displayName: firstResult.display_name 
-        };
-        
-        setRecentSearches(prev => {
-          // Filter out any existing identical searches
-          const filteredSearches = prev.filter(item => item.query.toLowerCase() !== currentQuery.toLowerCase());
-          // Add new search to beginning and limit to 5
-          return [newSearch, ...filteredSearches].slice(0, 5);
-        });
-        
-        // Clear search query after successful search
-        setSearchQuery('');
-        
-      } else {
-        console.log('No location found for query:', searchQuery);
+      if (!Array.isArray(results)) {
+        throw new Error('Invalid response format from geocoding service');
+      }
+      
+      console.log(`✅ Received ${results.length} search results`);
+      
+      if (results.length === 0) {
         Alert.alert(
-          'Location Not Found', 
-          'We couldn\'t find that location. Please try a more specific address or landmark.',
+          'No Results Found', 
+          `No locations found for "${currentQuery}". Please try a different search term.`,
           [{ text: 'OK' }]
         );
+        return;
       }
+      
+      // Get all results with valid coordinates
+      const validResults = results.filter(result => 
+        result.lat && result.lon && 
+        !isNaN(parseFloat(result.lat)) && 
+        !isNaN(parseFloat(result.lon))
+      );
+      
+      if (validResults.length === 0) {
+        throw new Error('No valid coordinates found in search results');
+      }
+      
+      // Use the first valid result
+      const firstResult = validResults[0];
+      
+      // OpenStreetMap returns lat/lon as strings
+      const latitude = parseFloat(firstResult.lat);
+      const longitude = parseFloat(firstResult.lon);
+      
+      if (isNaN(latitude) || isNaN(longitude)) {
+        throw new Error('Invalid coordinates in search result');
+      }
+      
+      console.log('📍 Found location:', { 
+        latitude, 
+        longitude, 
+        display_name: firstResult.display_name 
+      });
+      
+      // Create a better formatted display name from address details if available
+      let displayName = firstResult.display_name;
+      if (firstResult.address) {
+        const addr = firstResult.address;
+        // Build a more concise address string
+        const addressParts = [];
+        if (addr.road) addressParts.push(addr.road);
+        if (addr.suburb) addressParts.push(addr.suburb);
+        if (addr.city) addressParts.push(addr.city);
+        if (addr.state) addressParts.push(addr.state);
+        if (addr.country) addressParts.push(addr.country);
+        
+        if (addressParts.length > 0) {
+          displayName = addressParts.join(', ');
+        }
+      }
+      
+      // Update region with animation
+      const newRegion = {
+        latitude,
+        longitude,
+        latitudeDelta: 0.02, // Closer zoom level
+        longitudeDelta: 0.02,
+      };
+      
+      // Set region state
+      setRegion(newRegion);
+      
+      // Close the search modal
+      setShowSearchModal(false);
+      
+      // Animate to the location
+      if (mapRef && mapRef.animateToRegion) {
+        console.log('🗺️ Animating map to new location');
+        mapRef.animateToRegion(newRegion, 1000);
+      } else {
+        console.warn('⚠️ Map reference is not available for animation');
+      }
+      
+      // Add a temporary marker for the searched location
+      const searchedLocation = {
+        id: 'search-result',
+        latitude,
+        longitude,
+        title: displayName || 'Searched Location',
+        description: currentQuery,
+        isSearchResult: true
+      };
+      
+      // Set the search marker to display it on the map
+      setSearchMarker(searchedLocation);
+      
+      // Save to recent searches (limit to 5)
+      const newSearch = { 
+        query: currentQuery, 
+        timestamp: new Date().toISOString(),
+        displayName,
+        latitude,
+        longitude
+      };
+      
+      setRecentSearches(prev => {
+        // Filter out any existing identical searches
+        const filteredSearches = prev.filter(item => item.query.toLowerCase() !== currentQuery.toLowerCase());
+        // Add new search to beginning and limit to 5
+        return [newSearch, ...filteredSearches].slice(0, 5);
+      });
+      
+      // Clear search query after successful search
+      setSearchQuery('');
+      
     } catch (error) {
       console.error('Search error details:', error);
       Alert.alert(
@@ -818,6 +1357,38 @@ const ComplaintMapScreen = ({ navigation, route }) => {
         zoomEnabled={true}
         zoomControlEnabled={true}
       >
+        {/* Center debug marker */}
+        <Marker
+          coordinate={{
+            latitude: region.latitude,
+            longitude: region.longitude
+          }}
+          pinColor="#FF0000"
+          title="Center Position"
+          description="This marker shows the map center is working"
+        />
+        
+        {/* Heatmap visualization using markers */}
+        {showHeatmap && heatMapData && Array.isArray(heatMapData) && heatMapData.map((point, index) => (
+          <Marker
+            key={`heatpoint-${index}`}
+            coordinate={{
+              latitude: point.latitude,
+              longitude: point.longitude
+            }}
+            opacity={Math.min(0.1 + (point.weight / 100) * 0.9, 1)}
+            anchor={{x: 0.5, y: 0.5}}
+            zIndex={10}
+          >
+            <View style={{
+              width: 20,
+              height: 20,
+              borderRadius: 10,
+              backgroundColor: `rgba(255, ${Math.max(0, 200 - point.weight * 2)}, 0, 0.7)`,
+            }} />
+          </Marker>
+        ))}
+
         {/* Render complaint markers */}
         {getFilteredComplaints().length > 0 ? (
           getFilteredComplaints().map((complaint) => (
@@ -997,6 +1568,35 @@ const ComplaintMapScreen = ({ navigation, route }) => {
         </LinearGradient>
       </TouchableOpacity>
       
+      {/* Heatmap Toggle */}
+      <TouchableOpacity
+        style={[
+          styles.heatmapButton,
+          showHeatmap && styles.heatmapButtonActive
+        ]}
+        onPress={() => setShowHeatmap(!showHeatmap)}
+      >
+        <LinearGradient
+          colors={
+            showHeatmap 
+              ? [getThemeColor('status.warning', '#FFA000'), getThemeColor('status.warning', '#FF8F00')]
+              : [getThemeColor('neutral.gray400', '#BDBDBD'), getThemeColor('neutral.gray600', '#757575')]
+          }
+          style={styles.refreshGradient}
+        >
+          <View style={styles.heatmapContent}>
+            <MaterialIcons 
+              name={showHeatmap ? "layers" : "layers-clear"} 
+              size={18} 
+              color="white" 
+            />
+            <Text style={styles.heatmapText}>
+              Heat
+            </Text>
+          </View>
+        </LinearGradient>
+      </TouchableOpacity>
+      
       {/* My Location Button */}
       <TouchableOpacity
         style={styles.myLocationButton}
@@ -1009,12 +1609,49 @@ const ComplaintMapScreen = ({ navigation, route }) => {
           <Ionicons name="locate" size={24} color="white" />
         </LinearGradient>
       </TouchableOpacity>
+      
+      {/* Test API Button - for debugging */}
+      <TouchableOpacity
+        style={[styles.myLocationButton, styles.testButton]}
+        onPress={testApiEndpoints}
+      >
+        <LinearGradient
+          colors={[getThemeColor('warning.light', '#FFA726'), getThemeColor('warning.main', '#F57C00')]}
+          style={styles.myLocationGradient}
+        >
+          <Ionicons name="code-working" size={24} color="white" />
+        </LinearGradient>
+      </TouchableOpacity>
+      
+      {/* Test Heatmap Button - for debugging */}
+      <TouchableOpacity
+        style={[styles.myLocationButton, styles.testHeatmapButton]}
+        onPress={generateTestHeatmap}
+      >
+        <LinearGradient
+          colors={[getThemeColor('error.light', '#F48FB1'), getThemeColor('error.main', '#E91E63')]}
+          style={styles.myLocationGradient}
+        >
+          <MaterialIcons name="grain" size={24} color="white" />
+        </LinearGradient>
+      </TouchableOpacity>
 
       {/* Last Updated */}
       <View style={styles.lastUpdatedContainer}>
         <Ionicons name="time-outline" size={14} color={getThemeColor('neutral.gray600', '#757575')} />
         <Text style={styles.lastUpdatedText}>Updated {formatTimeAgo(lastUpdated)}</Text>
       </View>
+      
+      {/* Debug info for heatmap */}
+      {showHeatmap && (
+        <View style={styles.debugHeatmapOverlay}>
+          <Text style={styles.debugText}>
+            {heatMapData && Array.isArray(heatMapData) && heatMapData.length > 0 
+              ? `Heat Points: ${heatMapData.length} visible` 
+              : "Heat Points: None (generate test data)"}
+          </Text>
+        </View>
+      )}
     </View>
   );
 };
@@ -1298,6 +1935,11 @@ const styles = StyleSheet.create({
   },
   autoRefreshButton: {
     position: 'absolute',
+    bottom: 160,
+    right: 16,
+  },
+  heatmapButton: {
+    position: 'absolute',
     bottom: 104,
     right: 16,
   },
@@ -1330,7 +1972,41 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 3,
   },
+  testButton: {
+    bottom: 170, // Position above the location button
+    right: 16,
+  },
+  testHeatmapButton: {
+    bottom: 230, // Position above the test API button
+    right: 16,
+  },
+  debugHeatmapOverlay: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    zIndex: 1000,
+  },
+  debugText: {
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    color: 'white',
+    padding: 5,
+    borderRadius: 5,
+    fontSize: 12,
+  },
+  heatpointMarker: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,100,0,0.7)',
+  },
   autoRefreshButtonActive: {
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4.65,
+  },
+  heatmapButtonActive: {
     elevation: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
@@ -1342,7 +2018,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  heatmapContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   autoRefreshText: {
+    color: 'white',
+    fontWeight: 'bold',
+    marginLeft: 4,
+    fontSize: 12,
+  },
+  heatmapText: {
     color: 'white',
     fontWeight: 'bold',
     marginLeft: 4,

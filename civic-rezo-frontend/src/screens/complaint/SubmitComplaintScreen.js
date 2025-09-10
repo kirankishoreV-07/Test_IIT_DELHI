@@ -14,7 +14,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Picker } from '@react-native-picker/picker';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
-import { API_BASE_URL } from '../../../config/supabase';
+import { API_BASE_URL, makeApiCall, apiClient } from '../../../config/supabase';
 import { supabase } from '../../../config/supabase';
 import LocationPrivacySelector from '../../components/LocationPrivacySelector';
 import LocationService from '../../services/LocationService';
@@ -512,30 +512,17 @@ const SubmitComplaintScreen = ({ navigation }) => {
           confidence: 0.5,
           success: true
         },
-        imageUrl: selectedImage?.uri || null,
-        userId: 'demo_user',
-        userType: 'citizen'
+        imageUrl: selectedImage?.uri || null
       };
       
       console.log('📤 Submitting complaint with comprehensive data:', submissionData);
 
-      // Submit to new comprehensive endpoint
-      const response = await fetch(`${API_BASE_URL}/api/complaints/submit`, {
+      // Submit to new comprehensive endpoint using makeApiCall which automatically includes auth token
+      const result = await makeApiCall(apiClient.complaints.submit, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(submissionData),
       });
 
-      console.log('📥 Response status:', response.status);
-      console.log('📥 Response headers:', response.headers);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Response error:', errorText);
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
-      }
-
-      const result = await response.json();
       console.log('📋 Response data:', result);
       
       if (result.success) {

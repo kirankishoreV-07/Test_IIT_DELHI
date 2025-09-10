@@ -139,8 +139,6 @@ class HeatMapService {
    * Format complaint data for heat map visualization
    */
   formatHeatMapData(complaints) {
-    console.log(`🔄 Formatting ${complaints.length} complaints for heat map`);
-    
     const heatMapPoints = complaints
       .filter(complaint => 
         // Filter out complaints without valid coordinates
@@ -165,12 +163,6 @@ class HeatMapService {
         // Parse coordinates to ensure they're valid numbers
         const lat = parseFloat(complaint.location_latitude);
         const lng = parseFloat(complaint.location_longitude);
-        
-        // Compute complaint weight based on status and priority
-        const weight = this.getComplaintWeight(complaint);
-        
-        // Log the formatted point for debugging
-        console.log(`📍 Formatted point: id=${complaint.id}, lat=${lat}, lng=${lng}, weight=${weight}, status=${status}`);
         
         // Return both lat/lng and latitude/longitude for maximum compatibility
         return {

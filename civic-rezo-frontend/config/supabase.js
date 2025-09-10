@@ -45,19 +45,12 @@ const getApiBaseUrl = () => {
     const host = debuggerHost.split(':')[0];
     hostUrl = `http://${host}:${PORT}`;
   } else {
-    // Fallback IPs for common network configurations
-    const fallbackIPs = [
-      // Put your LAN IP first if you know it; we'll try a common private range as a sensible default
-      '192.168.1.100',
-      '192.168.1.1',    // Common router IP
-      '192.168.0.1',    // Alternative router IP
-      '10.0.0.1',       // Corporate network
-      'localhost'       // Last resort
-    ];
-    
-    // Use the first IP as primary (your current network)
-    hostUrl = `http://${fallbackIPs[0]}:${PORT}`;
+    // Fallback to a specific IP we know works based on server.js output
+    // The server output showed: 📱 Mobile access: http://192.168.29.237:3001/health
+    hostUrl = `http://192.168.29.237:${PORT}`;
   }
+  
+  console.log('📡 API BASE URL:', hostUrl);
   
   return hostUrl;
 };
@@ -70,6 +63,12 @@ console.log('📱 Platform:', Platform.OS);
 console.log('🔧 Development mode:', __DEV__);
 
 export const apiClient = {
+  // Base URL for constructing custom endpoints
+  baseUrl: API_BASE_URL,
+  
+  // Health check endpoint
+  health: `${API_BASE_URL}/health`,
+  
   // Auth endpoints
   auth: {
     login: `${API_BASE_URL}/api/auth/login`,
@@ -85,6 +84,11 @@ export const apiClient = {
   // Admin endpoints
   admin: {
     dashboard: `${API_BASE_URL}/api/admin/dashboard`,
+  },
+  // Heatmap endpoints
+  heatMap: {
+    data: `${API_BASE_URL}/api/heat-map/data`,
+    statistics: `${API_BASE_URL}/api/heat-map/statistics`,
   },
 };
 

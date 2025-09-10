@@ -19,6 +19,9 @@ import CitizenDashboard from './src/screens/citizen/CitizenDashboard';
 import AdminDashboard from './src/screens/admin/AdminDashboard';
 import SubmitComplaintScreen from './src/screens/complaint/SubmitComplaintScreen';
 import ComplaintMapScreen from './src/screens/citizen/ComplaintMapScreen';
+import ComplaintDetailScreen from './src/screens/citizen/ComplaintDetailScreen';
+import ComplaintFeedScreen from './src/screens/citizen/ComplaintFeedScreen';
+import CitizenTransparencyScreen from './src/screens/citizen/CitizenTransparencyScreen';
 
 const Stack = createStackNavigator();
 
@@ -92,6 +95,9 @@ export default function App() {
         <Stack.Screen name="CitizenDashboard" component={CitizenDashboard} />
         <Stack.Screen name="SubmitComplaint" component={SubmitComplaintScreen} />
         <Stack.Screen name="ComplaintMap" component={ComplaintMapScreen} />
+        <Stack.Screen name="ComplaintDetail" component={ComplaintDetailScreen} />
+        <Stack.Screen name="ComplaintFeed" component={ComplaintFeedScreen} />
+        <Stack.Screen name="CitizenTransparency" component={CitizenTransparencyScreen} />
         
         {/* Admin Screens */}
         <Stack.Screen name="AdminDashboard" component={AdminDashboard} />

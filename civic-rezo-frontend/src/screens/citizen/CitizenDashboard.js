@@ -144,7 +144,7 @@ const CitizenDashboard = ({ navigation }) => {
 
             <TouchableOpacity 
               style={[styles.actionButton, styles.secondaryAction]}
-              onPress={() => Alert.alert('My Reports', 'Track your environmental reports')}
+              onPress={() => navigation.navigate('ComplaintFeed')}
             >
               <LinearGradient
                 colors={[EnvironmentalTheme.secondary.main, EnvironmentalTheme.secondary.light]}
@@ -176,17 +176,17 @@ const CitizenDashboard = ({ navigation }) => {
 
             <TouchableOpacity 
               style={[styles.actionButton, styles.quaternaryAction]}
-              onPress={() => Alert.alert('Green AI', 'AI-powered environmental assistant')}
+              onPress={() => navigation.navigate('CitizenTransparency')}
             >
               <LinearGradient
                 colors={[EnvironmentalTheme.accent.lime, EnvironmentalTheme.primary.light]}
                 style={styles.actionGradient}
               >
                 <View style={styles.actionIconContainer}>
-                  <Ionicons name="leaf" size={28} color="#ffffff" />
+                  <Ionicons name="bar-chart" size={28} color="#ffffff" />
                 </View>
-                <Text style={styles.actionButtonText}>Green AI</Text>
-                <Text style={styles.actionSubtext}>Eco assistance</Text>
+                <Text style={styles.actionButtonText}>Transparency</Text>
+                <Text style={styles.actionSubtext}>Impact stats</Text>
               </LinearGradient>
             </TouchableOpacity>
           </View>

@@ -4,7 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
-const { createClient } = require('@supabase/supabase-js');
+const { supabase } = require('./config/supabase');
 
 // Debug environment variables
 console.log('🔧 Environment Debug:', {
@@ -23,14 +23,11 @@ if (!process.env.JWT_SECRET) {
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Supabase configuration
-const supabaseUrl = process.env.SUPABASE_URL || 'https://edragfuoklcgdgtospuq.supabase.co';
-const supabaseKey = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVkcmFnZnVva2xjZ2RndG9zcHVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY1NDE3MjMsImV4cCI6MjA3MjExNzcyM30.A58Ms03zTZC6J5OuhQbkkZQy-5uTxgu4vlLilrjPEwo';
-
-const supabase = createClient(supabaseUrl, supabaseKey);
-
 // Make supabase available to routes
 app.set('supabase', supabase);
+
+// Log connection status
+console.log('🔌 Supabase client initialized');
 
 // Middleware
 app.use(helmet());
@@ -40,13 +37,50 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
-app.use(morgan('combined'));
+
+// More detailed logging for API requests
+app.use(morgan(':remote-addr - :method :url :status :res[content-length] - :response-time ms'));
+
+// Add custom middleware to log request bodies for debugging
+app.use((req, res, next) => {
+  // Log API request details
+  if (req.url.startsWith('/api/')) {
+    const logInfo = {
+      method: req.method,
+      url: req.url,
+      query: req.query,
+      headers: {
+        'user-agent': req.headers['user-agent'],
+        'content-type': req.headers['content-type']
+      }
+    };
+    
+    // Only log request body for POST/PUT methods and if it exists
+    if ((req.method === 'POST' || req.method === 'PUT') && req.body && Object.keys(req.body).length > 0) {
+      // Truncate request body to avoid huge logs
+      const bodyStr = JSON.stringify(req.body);
+      logInfo.body = bodyStr.length > 200 ? bodyStr.substring(0, 200) + '...' : bodyStr;
+    }
+    
+    console.log('📥 API REQUEST:', JSON.stringify(logInfo));
+  }
+  next();
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Auth middleware - applies to all routes
+const { authenticateUser } = require('./middleware/auth');
+app.use(authenticateUser);
+
 // Routes
+// Register specific routes before general ones
+app.use('/api/complaints/vote', require('./routes/simplified-votes'));
+
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/complaints', require('./routes/complaints'));
+app.use('/api/complaint-details', require('./routes/complaintDetails'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/image-analysis', require('./routes/imageAnalysis'));
 app.use('/cloudinary', require('./routes/cloudinary'));
